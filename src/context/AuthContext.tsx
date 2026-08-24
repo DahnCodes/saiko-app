@@ -32,7 +32,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
       if (request !== requestRef.current) return
-      setState({ user: session.user, session, profile: snapshot.profile, favoriteCount: snapshot.favoriteCount, loading: false, profileLoading: false, error: null, isAuthenticated: true, onboardingState: derive(session, snapshot.profile?.username, snapshot.favoriteCount), refreshUserState: noop })
+      // A provider email is not a SAIKO username. OAuth users remain in the
+      // username step until a real profile username has been saved.
+      const username = snapshot.profile?.username?.trim() ?? ''
+      setState({ user: session.user, session, profile: snapshot.profile, favoriteCount: snapshot.favoriteCount, loading: false, profileLoading: false, error: null, isAuthenticated: true, onboardingState: derive(session, username, snapshot.favoriteCount), refreshUserState: noop })
     } catch (error) {
       if (request !== requestRef.current) return
       const message = error instanceof Error ? error.message : 'Could not load your SAIKO profile.'
