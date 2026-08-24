@@ -9,7 +9,7 @@ import './dna.css'; import './dna-share.css'
 
 export default function AnimeDNAPage() {
   const { user, profile } = useAuth(); const [dna, setDna] = useState<AnimeDNA | null>(null); const [card, setCard] = useState<AnimeDNAShareCardData | null>(null); const [preview, setPreview] = useState(''); const [busy, setBusy] = useState(false); const [message, setMessage] = useState('')
-  const username = profile?.username ?? user?.email?.split('@')[0] ?? 'anime-fan'; const publicUrl = dnaShareUrl(username)
+  const username = profile?.username ?? 'anime-fan'; const publicUrl = dnaShareUrl(username)
   useEffect(() => { if (user) getAnimeDNA(user.id).then(setDna).catch(() => setDna(null)) }, [user])
   useEffect(() => { if (!dna) return; let active = true; let objectUrl = ''; buildAnimeDNAShareCardData(dna, username, publicUrl).then(async (result) => { if (!active) return; setCard(result); const blob = await renderDNAImage(result); if (!active) return; objectUrl = URL.createObjectURL(blob); setPreview(objectUrl) }).catch(() => setMessage("We couldn't create your card right now. Try again.")); return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl) } }, [dna, username, publicUrl])
   if (!dna) return <section className="dna-page"><h1>Your Anime DNA</h1><p>We could not decode your taste yet.</p></section>
