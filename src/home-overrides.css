@@ -1,0 +1,4 @@
+.hero-unavailable { background: radial-gradient(circle at 80% 25%, #24263b, #101017 58%, #09090d); }
+.home-hero:not(.hero-unavailable):not(.hero-skeleton) { background-position: center, right center; background-size: cover, contain; background-repeat: no-repeat; }
+@media (max-width: 800px) { .home-hero:not(.hero-unavailable):not(.hero-skeleton) { background-position: center, center top; background-size: cover, 100% auto; padding-top: 260px; } }
+@media (max-width: 560px) { .home-hero:not(.hero-unavailable):not(.hero-skeleton) { background-size: cover, 100% auto; padding-top: 230px; } }

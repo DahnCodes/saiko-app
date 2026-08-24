@@ -1,0 +1,1 @@
+export type Trailer = { id: string; animeId: string; animeTitle: string; youtubeVideoId: string; title: string; thumbnail: string | null; channelName: string | null; publishedAt: string | null; duration: string | null; youtubeUrl: string }
