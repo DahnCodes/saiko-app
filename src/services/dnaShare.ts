@@ -19,5 +19,5 @@ export async function renderDNAImage(data: AnimeDNAShareCardData): Promise<Blob>
   ctx.strokeStyle = '#4a4f5b'; ctx.beginPath(); ctx.moveTo(78, 1160); ctx.lineTo(1002, 1160); ctx.stroke(); ctx.fillStyle = accent; ctx.font = '700 16px Arial'; ctx.fillText('YOUR CORE 3', 78, 1192); ctx.fillStyle = '#f4f5f7'; ctx.font = '600 19px Arial'; ctx.fillText(data.dna.favoriteAnime.slice(0, 3).map((anime) => anime.title).join('  •  '), 78, 1222); ctx.fillStyle = '#a7adb8'; ctx.font = '16px Arial'; ctx.fillText(`@${data.username}`, 78, 1262); ctx.textAlign = 'right'; ctx.fillStyle = accent; ctx.font = '700 15px Arial'; ctx.fillText('DISCOVER YOUR ANIME DNA', 1002, 1262)
   return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Could not create image.')), 'image/png'))
 }
-export function dnaShareUrl(username: string) { return `https://saiko-app.pxxl.click/dna/${encodeURIComponent(username)}` }
+export function dnaShareUrl(username: string) { return `https://saiko-app.pxxl.click/auth` }
 export function downloadDNAImage(blob: Blob, username: string) { const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `saiko-anime-dna-${username.replace(/[^a-z0-9_-]/gi, '-').toLowerCase() || 'profile'}.png`; link.click(); URL.revokeObjectURL(url) }
