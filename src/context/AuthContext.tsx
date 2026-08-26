@@ -3,12 +3,12 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import type { AuthState, OnboardingState } from '../types/auth.ts'
-import { createProfile, getOnboardingSnapshot, requireSupabase } from '../services/authService.ts'
+import { getOnboardingSnapshot, requireSupabase } from '../services/authService.ts'
 
 const noop = async () => {}
 const initial: AuthState = { user: null, session: null, profile: null, favoriteCount: 0, loading: true, profileLoading: false, error: null, isAuthenticated: false, onboardingState: 'loading', refreshUserState: noop }
 const AuthContext = createContext<AuthState>(initial)
-function derive(session: Session | null, username: string | undefined, favorites: number): OnboardingState { if (!session) return 'signed_out'; if (!username?.trim()) return 'needs_username'; if (favorites !== 3) return 'needs_favorites'; return 'complete' }
+function derive(session: Session | null, username: string | undefined, favorites: number): OnboardingState { if (!session) return 'signed_out'; if (!username || !/^[a-z0-9_]{3,24}$/i.test(username.trim()) || username.includes('@')) return 'needs_username'; if (favorites !== 3) return 'needs_favorites'; return 'complete' }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(initial)
@@ -20,17 +20,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!session) { setState({ ...initial, loading: false, onboardingState: 'signed_out' }); return }
     setState((current) => ({ ...current, user: session.user, session, loading: false, profileLoading: true, isAuthenticated: true, error: null, onboardingState: 'loading' }))
     try {
-      let snapshot = await getOnboardingSnapshot()
-      // Email signups can return a user before a session exists. Once the address
-      // is confirmed, the username stored in auth metadata completes the profile.
-      const metadataUsername = typeof session.user.user_metadata?.username === 'string' ? session.user.user_metadata.username.trim().toLowerCase() : ''
-      if (!snapshot.profile && /^[a-z0-9_]{3,24}$/.test(metadataUsername)) {
-        try { await createProfile(session.user.id, metadataUsername); snapshot = await getOnboardingSnapshot() } catch (profileError) {
-          const code = (profileError as { code?: string })?.code
-          if (code !== '23505') throw profileError
-          snapshot = await getOnboardingSnapshot()
-        }
-      }
+      const snapshot = await getOnboardingSnapshot()
       if (request !== requestRef.current) return
       // A provider email is not a SAIKO username. OAuth users remain in the
       // username step until a real profile username has been saved.
