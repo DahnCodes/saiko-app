@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './index.css'
 import AppShell from './App.tsx'
-import PagePlaceholder from './pages/PagePlaceholder.tsx'
+// PagePlaceholder removed; using dedicated RecommendationsPage instead
 import AuthPage from './pages/AuthPage.tsx'
 import ProfilePage from './pages/ProfilePage.tsx'
 import AnimeDNAPage from './pages/AnimeDNAPage.tsx'
