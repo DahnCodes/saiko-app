@@ -2,14 +2,19 @@ import { NavLink, Outlet } from 'react-router-dom'
 import './App.css'
 import OnboardingManager from './components/OnboardingManager.tsx'
 import { useAuth } from './context/AuthContext.tsx'
+import { FiHome, FiSearch, FiGrid, FiHeart } from 'react-icons/fi'
+import { GiDna1 } from 'react-icons/gi'
 
 const navigation = [
   { label: 'Home', to: '/' }, { label: 'Anime', to: '/anime' }, { label: 'News', to: '/news' },
   { label: 'Trailers', to: '/trailers' }, { label: 'Recommendations', to: '/recommendations' },
 ]
 const mobileNavigation = [
-  { label: 'Home', to: '/', icon: '⌂' }, { label: 'Search', to: '/search', icon: '⌕' },
-  { label: 'Explore', to: '/anime', icon: '▦' }, { label: 'For You', to: '/recommendations', icon: '◇' }, { label: 'DNA', to: '/anime-dna', icon: '✦' },
+  { label: 'Home', to: '/', icon: <FiHome /> },
+  { label: 'Search', to: '/search', icon: <FiSearch /> },
+  { label: 'Explore', to: '/anime', icon: <FiGrid /> },
+  { label: 'For You', to: '/recommendations', icon: <FiHeart /> },
+  { label: 'DNA', to: '/anime-dna', icon: <GiDna1 /> },
 ]
 function Avatar({ username, avatarUrl }: { username?: string; avatarUrl?: string | null }) { const initials = (username?.slice(0, 2) || 'S').toUpperCase(); return avatarUrl ? <img className="profile-avatar" src={avatarUrl} alt="" /> : <span className="profile-avatar profile-avatar-fallback" aria-hidden="true">{initials}</span> }
 function AppShell() {

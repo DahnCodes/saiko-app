@@ -5,19 +5,227 @@ import { getAnimeDNA } from '../services/dnaService.ts'
 import type { AnimeDNA } from '../services/animeDNA.ts'
 import { buildAnimeDNAShareCardData, type AnimeDNAShareCardData } from '../services/dnaShareModel.ts'
 import { dnaShareUrl, downloadDNAImage, renderDNAImage } from '../services/dnaShare.ts'
-import './dna.css'; import './dna-share.css'
+import './dna.css'
+import './dna-share.css'
 
 export default function AnimeDNAPage() {
-  const { user, profile } = useAuth(); const [dna, setDna] = useState<AnimeDNA | null>(null); const [card, setCard] = useState<AnimeDNAShareCardData | null>(null); const [preview, setPreview] = useState(''); const [busy, setBusy] = useState(false); const [message, setMessage] = useState('')
-  const username = profile?.username ?? 'anime-fan'; const publicUrl = dnaShareUrl(username)
-  useEffect(() => { if (user) getAnimeDNA(user.id).then(setDna).catch(() => setDna(null)) }, [user])
-  useEffect(() => { if (!dna) return; let active = true; let objectUrl = ''; buildAnimeDNAShareCardData(dna, username, publicUrl).then(async (result) => { if (!active) return; setCard(result); const blob = await renderDNAImage(result); if (!active) return; objectUrl = URL.createObjectURL(blob); setPreview(objectUrl) }).catch(() => setMessage("We couldn't create your card right now. Try again.")); return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl) } }, [dna, username, publicUrl])
-  if (!dna) return <section className="dna-page"><h1>Your Anime DNA</h1><p>We could not decode your taste yet.</p></section>
-  const imageBlob = async () => { if (!card) throw new Error('Your card is still preparing.'); return renderDNAImage(card) }
-  const share = async () => { setBusy(true); setMessage(''); try { const blob = await imageBlob(); const file = new File([blob], `saiko-anime-dna-${username}.png`, { type: 'image/png' }); if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) await navigator.share({ title: 'My Anime DNA · SAIKO', text: `SAIKO says I'm a ${dna.archetype.name} ${dna.archetype.icon}`, url: publicUrl, files: [file] }); else downloadDNAImage(blob, username) } catch (error) { if (!(error instanceof DOMException && error.name === 'AbortError')) setMessage(error instanceof Error ? error.message : "We couldn't create your card right now. Try again.") } finally { setBusy(false) } }
-  const shareToX = async () => { setBusy(true); try { const blob = await imageBlob(); const file = new File([blob], `saiko-anime-dna-${username}.png`, { type: 'image/png' }); if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) await navigator.share({ title: 'My Anime DNA · SAIKO', text: xText, files: [file] }); else { downloadDNAImage(blob, username); window.open(`https://x.com/intent/post?text=${encodeURIComponent(xText)}`, '_blank', 'noopener,noreferrer') } } catch (error) { if (!(error instanceof DOMException && error.name === 'AbortError')) setMessage(error instanceof Error ? error.message : "We couldn't share your card right now.") } finally { setBusy(false) } }
-  const save = async () => { setBusy(true); try { downloadDNAImage(await imageBlob(), username) } catch (error) { setMessage(error instanceof Error ? error.message : "We couldn't create your card right now. Try again.") } finally { setBusy(false) } }
-  const copyImage = async () => { try { const blob = await imageBlob(); if (!navigator.clipboard || typeof ClipboardItem === 'undefined') throw new Error("Copying images isn't supported in this browser. Use Save Image instead."); await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); setMessage('DNA image copied.') } catch (error) { setMessage(error instanceof Error ? error.message : "Copying images isn't supported in this browser. Use Save Image instead.") } }
-  const top = dna.traits.slice(0, 3); const xText = `SAIKO says I'm a ${dna.archetype.name} ${dna.archetype.icon}\n\n${top.map(t => `${t.name}: ${t.score}%`).join('\n')}\n\nWhat's your Anime DNA?\n${publicUrl}`
-  return <section className="dna-page"><p className="eyebrow">SAIKO · YOUR TASTE, DECODED</p><h1>{dna.archetype.icon} {dna.archetype.name}</h1><p className="dna-description">{dna.description}</p><h2>Your taste</h2>{dna.traits.map(t => <div className="dna-trait" key={t.name}><span>{t.icon} {t.name}</span><b>{t.score}%</b><i><em style={{ width: `${t.score}%` }} /></i></div>)}<h2>Your core anime</h2><div className="dna-favorites">{dna.favoriteAnime.map(a => <Link to={`/anime/${a.id}`} key={a.id}>{a.title}</Link>)}</div><section className="share-studio" aria-labelledby="share-title"><div className="share-studio-heading"><div><p className="eyebrow">YOUR ANIME IDENTITY</p><h2 id="share-title">Share your DNA</h2></div>{card?.featuredCharacter && <p>Featured from <b>{card.featuredCharacter.animeTitle}</b> · {card.featuredCharacter.name}</p>}</div><div className="dna-card-preview">{preview ? <img src={preview} alt={`SAIKO Anime DNA card for ${username}`} /> : <div className="dna-card-loading">Generating your Anime DNA card...</div>}</div><div className="dna-actions"><button className="primary-action" onClick={share} disabled={busy || !card}>{busy ? 'Preparing card...' : 'Share card'}</button><button className="secondary-action" onClick={shareToX} disabled={busy || !card}>X</button><button className="secondary-action" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`I just discovered my Anime DNA on SAIKO. I'm a ${dna.archetype.icon} ${dna.archetype.name}. What's yours? ${publicUrl}`)}`, '_blank', 'noopener,noreferrer')}>WhatsApp</button><button className="secondary-action" onClick={save} disabled={busy || !card}>Save image</button><button className="secondary-action" onClick={copyImage} disabled={!card}>Copy image</button><button className="secondary-action" onClick={() => navigator.clipboard?.writeText(publicUrl).then(() => setMessage('DNA link copied.')).catch(() => setMessage('Copy is unavailable in this browser.'))}>Copy link</button></div>{message && <p className="dna-share-message" role="status">{message}</p>}</section></section>
+  const { user, profile, loading, profileLoading } = useAuth()
+  const [dna, setDna] = useState<AnimeDNA | null>(null)
+  const [dnaLoading, setDnaLoading] = useState(true)
+  const [card, setCard] = useState<AnimeDNAShareCardData | null>(null)
+  const [preview, setPreview] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const username = profile?.username ?? 'anime-fan'
+  const publicUrl = dnaShareUrl(username)
+
+  useEffect(() => {
+    let mounted = true
+    if (!user) {
+      setDna(null)
+      setDnaLoading(false)
+      return
+    }
+    setDnaLoading(true)
+    getAnimeDNA(user.id)
+      .then((res) => mounted && setDna(res))
+      .catch(() => mounted && setDna(null))
+      .finally(() => mounted && setDnaLoading(false))
+    return () => {
+      mounted = false
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (!dna) return
+    let active = true
+    let objectUrl = ''
+    buildAnimeDNAShareCardData(dna, username, publicUrl)
+      .then(async (result) => {
+        if (!active) return
+        setCard(result)
+        const blob = await renderDNAImage(result)
+        if (!active) return
+        objectUrl = URL.createObjectURL(blob)
+        setPreview(objectUrl)
+      })
+      .catch(() => setMessage("We couldn't create your card right now. Try again."))
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [dna, username, publicUrl])
+
+  if (loading || profileLoading || dnaLoading)
+    return (
+      <section className="dna-page">
+        <div className="state-panel">Decoding your Anime DNA...</div>
+      </section>
+    )
+
+  if (!dna)
+    return (
+      <section className="dna-page">
+        <h1>Your Anime DNA</h1>
+        <p>We could not decode your taste yet. Add favorites to your profile and return.</p>
+      </section>
+    )
+
+  const imageBlob = async () => {
+    if (!card) throw new Error('Your card is still preparing.')
+    return renderDNAImage(card)
+  }
+
+  const top = dna.traits.slice(0, 3)
+  const xText = `SAIKO says I'm a ${dna.archetype.name} ${dna.archetype.icon}\n\n${top.map((t) => `${t.name}: ${t.score}%`).join('\n')}\n\nWhat's your Anime DNA?\n${publicUrl}`
+
+  const share = async () => {
+    setBusy(true)
+    setMessage('')
+    try {
+      const blob = await imageBlob()
+      const file = new File([blob], `saiko-anime-dna-${username}.png`, { type: 'image/png' })
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] })))
+        await navigator.share({ title: 'My Anime DNA · SAIKO', text: `SAIKO says I'm a ${dna.archetype.name} ${dna.archetype.icon}`, url: publicUrl, files: [file] })
+      else downloadDNAImage(blob, username)
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError'))
+        setMessage(error instanceof Error ? error.message : "We couldn't create your card right now. Try again.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const shareToX = async () => {
+    setBusy(true)
+    try {
+      const blob = await imageBlob()
+      const file = new File([blob], `saiko-anime-dna-${username}.png`, { type: 'image/png' })
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] })))
+        await navigator.share({ title: 'My Anime DNA · SAIKO', text: xText, files: [file] })
+      else {
+        downloadDNAImage(blob, username)
+        window.open(`https://x.com/intent/post?text=${encodeURIComponent(xText)}`, '_blank', 'noopener,noreferrer')
+      }
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError'))
+        setMessage(error instanceof Error ? error.message : "We couldn't share your card right now.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const save = async () => {
+    setBusy(true)
+    try {
+      downloadDNAImage(await imageBlob(), username)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "We couldn't create your card right now. Try again.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copyImage = async () => {
+    try {
+      const blob = await imageBlob()
+      if (!navigator.clipboard || typeof ClipboardItem === 'undefined')
+        throw new Error("Copying images isn't supported in this browser. Use Save Image instead.")
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      setMessage('DNA image copied.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Copying images isn't supported in this browser. Use Save Image instead.")
+    }
+  }
+
+  return (
+    <section className="dna-page">
+      <p className="eyebrow">SAIKO · YOUR TASTE, DECODED</p>
+      <h1>
+        {dna.archetype.icon} {dna.archetype.name}
+      </h1>
+      <p className="dna-description">{dna.description}</p>
+
+      <h2>Your taste</h2>
+      {dna.traits.map((t) => (
+        <div className="dna-trait" key={t.name}>
+          <span>
+            {t.icon} {t.name}
+          </span>
+          <b>{t.score}%</b>
+          <i>
+            <em style={{ width: `${t.score}%` }} />
+          </i>
+        </div>
+      ))}
+
+      <h2>Your core anime</h2>
+      <div className="dna-favorites">
+        {dna.favoriteAnime.map((a) => (
+          <Link to={`/anime/${a.id}`} key={a.id}>
+            {a.title}
+          </Link>
+        ))}
+      </div>
+
+      <section className="share-studio" aria-labelledby="share-title">
+        <div className="share-studio-heading">
+          <div>
+            <p className="eyebrow">YOUR ANIME IDENTITY</p>
+            <h2 id="share-title">Share your DNA</h2>
+          </div>
+          {card?.featuredCharacter && (
+            <p>
+              Featured from <b>{card.featuredCharacter.animeTitle}</b> · {card.featuredCharacter.name}
+            </p>
+          )}
+        </div>
+
+        <div className="dna-card-preview">
+          {preview ? <img src={preview} alt={`SAIKO Anime DNA card for ${username}`} /> : <div className="dna-card-loading">Generating your Anime DNA card...</div>}
+        </div>
+
+        <div className="dna-actions">
+          <button className="primary-action" onClick={share} disabled={busy || !card}>
+            {busy ? 'Preparing card...' : 'Share card'}
+          </button>
+          <button className="secondary-action" onClick={shareToX} disabled={busy || !card}>
+            X
+          </button>
+          <button
+            className="secondary-action"
+            onClick={() =>
+              window.open(
+                `https://wa.me/?text=${encodeURIComponent(`I just discovered my Anime DNA on SAIKO. I'm a ${dna.archetype.icon} ${dna.archetype.name}. What's yours? ${publicUrl}`)}`,
+                '_blank',
+                'noopener,noreferrer'
+              )
+            }
+          >
+            WhatsApp
+          </button>
+          <button className="secondary-action" onClick={save} disabled={busy || !card}>
+            Save image
+          </button>
+          <button className="secondary-action" onClick={copyImage} disabled={!card}>
+            Copy image
+          </button>
+          <button
+            className="secondary-action"
+            onClick={() =>
+              navigator.clipboard
+                ?.writeText(publicUrl)
+                .then(() => setMessage('DNA link copied.'))
+                .catch(() => setMessage('Copy is unavailable in this browser.'))
+            }
+          >
+            Copy link
+          </button>
+        </div>
+
+        {message && <div className="dna-message">{message}</div>}
+      </section>
+    </section>
+  )
 }

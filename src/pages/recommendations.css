@@ -1,0 +1,17 @@
+.coming-soon-page { padding: 72px 16px 96px; }
+.coming-soon-inner { max-width: 980px; margin: 0 auto; display:flex; gap:28px; align-items:center; justify-content:center; }
+.coming-soon-art { width:320px; max-width:40%; height:auto; display:block; border-radius:12px; }
+.coming-soon-copy { max-width:520px; }
+.coming-soon-copy .lead { color: var(--muted); margin-top:8px; margin-bottom:18px; }
+.coming-soon-footer { display:flex; gap:14px; align-items:center; margin-top:20px; }
+.coming-soon-hero { width:120px; height:120px; object-fit:cover; border-radius:8px; border:1px solid var(--line); }
+.muted { color: var(--muted); font-size:13px; }
+@media (max-width: 700px) {
+  .coming-soon-inner { flex-direction:column; text-align:center; }
+  .coming-soon-art { max-width:80%; width:260px; }
+  .coming-soon-hero { width:96px; height:96px; }
+}
+@media (max-width: 420px) {
+  .coming-soon-art { width:200px; }
+  .coming-soon-copy { padding: 0 8px; }
+}
