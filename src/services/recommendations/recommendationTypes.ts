@@ -27,6 +27,7 @@ export type AnimeRecommendation = {
 
 export type RecommendationOptions = {
   limit?: number
+  forceRefresh?: boolean
 }
 
 export default null

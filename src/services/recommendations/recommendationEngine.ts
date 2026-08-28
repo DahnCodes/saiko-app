@@ -88,11 +88,13 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
 
   // try cache
   try {
-    const { data: cached, error: cacheErr } = await supabase.from('user_recommendations').select('recommendations,updated_at').eq('user_id', userId).maybeSingle()
-    if (!cacheErr && cached?.updated_at) {
-      const updated = new Date(cached.updated_at).getTime()
-      if ((Date.now() - updated) / 1000 < CACHE_TTL_SECONDS) {
-        return cached.recommendations as AnimeRecommendation[]
+    if (!options?.forceRefresh) {
+      const { data: cached, error: cacheErr } = await supabase.from('user_recommendations').select('recommendations,updated_at').eq('user_id', userId).maybeSingle()
+      if (!cacheErr && cached?.updated_at) {
+        const updated = new Date(cached.updated_at).getTime()
+        if ((Date.now() - updated) / 1000 < CACHE_TTL_SECONDS) {
+          return cached.recommendations as AnimeRecommendation[]
+        }
       }
     }
   } catch {
@@ -296,15 +298,8 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
 
 // Invalidate and regenerate recommendations for a user (client-safe upsert)
 export async function regeneratePersonalizedHomeRecommendations(userId: string, options?: RecommendationOptions): Promise<AnimeRecommendation[]> {
-  if (!supabase) throw new Error('Recommendation service not configured')
-  try {
-    // Mark cache stale by writing an old updated_at; security policies allow upsert by the authenticated user
-    await supabase.from('user_recommendations').upsert({ user_id: userId, recommendations: [], updated_at: new Date(0).toISOString() }, { onConflict: 'user_id' })
-  } catch {
-    // ignore cache invalidation failures
-  }
-  // Now compute fresh recommendations which will upsert the new row
-  return await getPersonalizedHomeRecommendations(userId, options)
+  // Force recomputation bypassing the cache
+  return await getPersonalizedHomeRecommendations(userId, { ...(options ?? {}), forceRefresh: true })
 }
 
 // Dev-only debug helper to inspect pipeline for a user
