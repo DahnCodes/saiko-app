@@ -26,6 +26,9 @@ create table if not exists public.user_favorite_anime (
 );
 create index if not exists user_favorites_user_idx on public.user_favorite_anime (user_id);
 alter table public.user_favorite_anime enable row level security;
-create policy "Users can read own favorites" on public.user_favorite_anime for select to authenticated using (user_id = auth.uid());
-create policy "Users can add own favorites" on public.user_favorite_anime for insert to authenticated with check (user_id = auth.uid());
-create policy "Users can remove own favorites" on public.user_favorite_anime for delete to authenticated using (user_id = auth.uid());
+ drop policy if exists "Users can read own favorites" on public.user_favorite_anime;
+ create policy "Users can read own favorites" on public.user_favorite_anime for select to authenticated using (user_id = auth.uid());
+ drop policy if exists "Users can add own favorites" on public.user_favorite_anime;
+ create policy "Users can add own favorites" on public.user_favorite_anime for insert to authenticated with check (user_id = auth.uid());
+ drop policy if exists "Users can remove own favorites" on public.user_favorite_anime;
+ create policy "Users can remove own favorites" on public.user_favorite_anime for delete to authenticated using (user_id = auth.uid());

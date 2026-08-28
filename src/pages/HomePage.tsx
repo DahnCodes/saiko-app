@@ -93,7 +93,7 @@ export default function HomePage() {
       )}
 
       {/* Personalized recommendations section */}
-      <section className="home-section">
+      {/* <section className="home-section">
         <div className="section-heading">
           <div>
             <p className="eyebrow">SAIKO THINKS YOU'LL LOVE THIS</p>
@@ -136,7 +136,7 @@ export default function HomePage() {
             <div style={{ marginTop: 12 }}><Link className="primary-action" to="/onboarding">Create Anime DNA</Link></div>
           </div>
         )}
-      </section>
+      </section> */}
 
       {/* Trending section (existing) */}
       <section className="home-section">
