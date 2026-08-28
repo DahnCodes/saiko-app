@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import './App.css'
 import OnboardingManager from './components/OnboardingManager.tsx'
 import { useAuth } from './context/AuthContext.tsx'
-import { FiHome, FiSearch, FiGrid, FiHeart } from 'react-icons/fi'
+import { FiHome, FiFileText, FiGrid, FiHeart, FiPlay } from 'react-icons/fi'
 import { GiDna1 } from 'react-icons/gi'
 
 const navigation = [
@@ -11,7 +11,7 @@ const navigation = [
 ]
 const mobileNavigation = [
   { label: 'Home', to: '/', icon: <FiHome /> },
-  { label: 'Search', to: '/search', icon: <FiSearch /> },
+  { label: 'News', to: '/news', icon: <FiFileText /> },
   { label: 'Explore', to: '/anime', icon: <FiGrid /> },
   { label: 'For You', to: '/recommendations', icon: <FiHeart /> },
   { label: 'DNA', to: '/anime-dna', icon: <GiDna1 /> },
@@ -24,7 +24,7 @@ function AppShell() {
     <nav className="main-nav" aria-label="Main navigation">{navigation.map((item) => <NavLink key={item.to} to={item.to} end={item.to === '/'}>{item.label}</NavLink>)}</nav>
     <div className="header-actions"><NavLink className="icon-button" to="/search" aria-label="Search">⌕</NavLink><NavLink className="desktop-profile-link" to={isAuthenticated ? '/profile' : '/auth'} aria-label={isAuthenticated ? 'Open profile' : 'Sign in'}>{isAuthenticated ? <Avatar username={profile?.username} avatarUrl={profile?.avatarUrl} /> : 'Sign in'}</NavLink></div>
   </header><main className="page-content"><Outlet /></main><footer className="site-footer"><span>SAIKO</span><span>Your anime taste, decoded.</span></footer>
-  <nav className="mobile-bottom-nav" aria-label="Mobile navigation">{mobileNavigation.map((item) => <NavLink key={item.to} to={item.to} end={item.to === '/'}><span className="mobile-nav-icon" aria-hidden="true">{item.icon}</span><span>{item.label}</span></NavLink>)}<NavLink to={isAuthenticated ? '/profile' : '/auth'}><span className="mobile-nav-icon" aria-hidden="true">◉</span><span>{isAuthenticated ? 'Profile' : 'Sign In'}</span></NavLink></nav>
+  <nav className="mobile-bottom-nav" aria-label="Mobile navigation">{mobileNavigation.map((item) => <NavLink key={item.to} to={item.to} end={item.to === '/'}><span className="mobile-nav-icon" aria-hidden="true">{item.icon}</span><span>{item.label}</span></NavLink>)}<NavLink to="/trailers"><span className="mobile-nav-icon" aria-hidden="true"><FiPlay /></span><span>Trailers</span></NavLink></nav>
   </div>
 }
 export default AppShell
