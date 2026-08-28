@@ -2,7 +2,7 @@ import { supabase } from '../../lib/supabase'
 import type { Anime } from '../../types/anime'
 import type { AnimeRecommendation, RecommendationOptions, RecommendationScore } from './recommendationTypes'
 import { getAnimeDNA } from '../dnaService'
-import { getStarterAnime, getAnimeByAnilistId, mapAnime } from '../animeService'
+import { getStarterAnime, getAnimeByAnilistId, mapAnime, getAnimeById } from '../animeService'
 import * as aniList from '../../services/aniListService'
 
 export const CACHE_TTL_SECONDS = 60 * 60 * 4 // 4 hours
@@ -93,24 +93,48 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
   const fingerprintNames = fingerprint.map((t) => t.name)
   const fingerprintString = JSON.stringify(fingerprint.map((t) => ({ n: t.name, s: t.score })))
 
-  // try per-user cached recommendations (only when fingerprint matches and not forced)
-  if (!options?.forceRefresh) {
-    try {
-      const { data: cached, error: cacheErr } = await supabase.from('user_recommendations').select('recommendations,updated_at,fingerprint').eq('user_id', userId).maybeSingle()
-      if (!cacheErr && cached?.updated_at && cached?.fingerprint === fingerprintString) {
-        const updated = new Date(cached.updated_at).getTime()
-        if ((Date.now() - updated) / 1000 < CACHE_TTL_SECONDS) {
-          return cached.recommendations as AnimeRecommendation[]
-        }
-      }
-    } catch {
-      // ignore cache errors
-    }
+  // For correctness, always compute recommendations per request (no shared cache read).
+  // Dedupe concurrent computations per user to avoid duplicate work from multiple tabs.
+  if (inFlightComputations.has(userId)) {
+    return await inFlightComputations.get(userId)!
   }
 
-  // dedupe concurrent computations per user
-  if (!options?.forceRefresh && inFlightComputations.has(userId)) {
-    return await inFlightComputations.get(userId)!
+  // Distributed lock key
+  const lockKey = `recompute:${userId}`
+  let lockToken: string | null = null
+  // attempt to load redis lock helpers only on server (avoid bundling ioredis into client)
+  let redisHelpers: any = null
+  try {
+    const hasRedisEnv = (globalThis as any).process?.env?.REDIS_URL || (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_REDIS_URL)
+    const isServer = typeof window === 'undefined'
+    if (isServer && hasRedisEnv) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      redisHelpers = require('../../lib/redisLock')
+      lockToken = await redisHelpers.acquireLock(lockKey, 60_000)
+    }
+  } catch {
+    lockToken = null
+    redisHelpers = null
+  }
+  // If a distributed lock exists and we didn't acquire it, poll cache for up to 5s
+  if (!lockToken) {
+    const start = Date.now()
+    while (Date.now() - start < 5000) {
+      // try read per-user cached recommendations (fingerprint must match)
+      try {
+        const { data: cached } = await supabase.from('user_recommendations').select('recommendations,updated_at,fingerprint').eq('user_id', userId).maybeSingle()
+        if (cached && cached.fingerprint === fingerprintString) {
+          const updated = new Date(cached.updated_at).getTime()
+          if ((Date.now() - updated) / 1000 < CACHE_TTL_SECONDS) {
+            return cached.recommendations as AnimeRecommendation[]
+          }
+        }
+      } catch {
+        // ignore
+      }
+      // sleep briefly
+      await new Promise((res) => setTimeout(res, 250))
+    }
   }
 
   const computePromise = (async (): Promise<AnimeRecommendation[]> => {
@@ -120,15 +144,11 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
       getStarterAnime(),
     ])
     const favoriteRows = (favoritesResp.data ?? []) as { anime_id: string }[]
-    const favoriteIds = new Set(favoriteRows.map((r) => r.anime_id))
-    // also collect favorite Anilist IDs to exclude AniList candidates
-    const favoriteAnilistIds = new Set<number>()
-    try {
-      if (favoriteRows.length) {
-        const { data: favAnimeRows } = await supabase.from('anime').select('anilist_id').in('id', favoriteRows.map((r) => r.anime_id))
-        for (const row of (favAnimeRows ?? [])) if (row.anilist_id) favoriteAnilistIds.add(row.anilist_id)
-      }
-    } catch {}
+    // Resolve favorite anime fully to get canonical DB id, AniList id and titles
+    const favoriteAnimeObjs = await Promise.all(favoriteRows.map((r: { anime_id: string }) => getAnimeById(r.anime_id).catch(() => null)))
+    const favoriteIds = new Set<string>(favoriteAnimeObjs.filter(Boolean).map((a: any) => String(a.id)))
+    const favoriteAnilistIds = new Set<number>(favoriteAnimeObjs.filter(Boolean).map((a: any) => a.anilistId).filter(Boolean) as number[])
+    const favoriteTitles = new Set<string>(favoriteAnimeObjs.filter(Boolean).map((a: any) => (a.title ?? '').toLowerCase()))
     const onboardingIds = new Set((starterAnime ?? []).map((a) => a.id))
 
     // candidate discovery: combine recent pool and genre-driven pools
@@ -149,10 +169,14 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
     const candidates: Anime[] = []
     for (const a of merged) {
       if (!a || !a.id) continue
-      if (seen.has(a.id)) continue
-      seen.add(a.id)
-      // Exclusions: user's favorites (Core 3), onboarding starter titles (calibration), and any favorites
-      if (favoriteIds.has(a.id)) continue
+      const aid = String(a.id)
+      if (seen.has(aid)) continue
+      seen.add(aid)
+      // Exclusions: user's favorites (Core 3) by DB id, AniList id, and title, plus onboarding starter titles
+      if (favoriteIds.has(aid)) continue
+      if (a.anilistId && favoriteAnilistIds.has(a.anilistId)) continue
+      if (favoriteTitles.has((a.title ?? '').toLowerCase())) continue
+      if (onboardingIds.has(a.id)) continue
       if (onboardingIds.has(a.id)) continue
       candidates.push(a)
     }
@@ -173,9 +197,12 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
         try {
           const dbRow = await getAnimeByAnilistId(c.id)
           if (dbRow) {
-            if (seen.has(dbRow.id)) continue
-            seen.add(dbRow.id)
-            if (favoriteIds.has(dbRow.id)) continue
+            const dbId = String(dbRow.id)
+            if (seen.has(dbId)) continue
+            seen.add(dbId)
+            if (favoriteIds.has(dbId)) continue
+            if (dbRow.anilistId && favoriteAnilistIds.has(dbRow.anilistId)) continue
+            if (favoriteTitles.has((dbRow.title ?? '').toLowerCase())) continue
             if (onboardingIds.has(dbRow.id)) continue
             candidates.push(dbRow)
             continue
@@ -195,16 +222,19 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
             genres: c.genres ?? [],
             season_year: c.seasonYear ?? null,
           }
-          await supabase.from('anime').upsert(upsertObj, { onConflict: 'anilist_id' })
-          const dbAnime = await getAnimeByAnilistId(c.id)
-          if (dbAnime) {
-            if (seen.has(dbAnime.id)) continue
-            seen.add(dbAnime.id)
-            if (favoriteIds.has(dbAnime.id)) continue
-            if (onboardingIds.has(dbAnime.id)) continue
-            candidates.push(dbAnime)
-            continue
-          }
+            await supabase.from('anime').upsert(upsertObj, { onConflict: 'anilist_id' })
+            const dbAnime = await getAnimeByAnilistId(c.id)
+            if (dbAnime) {
+              const dbId = String(dbAnime.id)
+              if (seen.has(dbId)) continue
+              seen.add(dbId)
+              if (favoriteIds.has(dbId)) continue
+              if (dbAnime.anilistId && favoriteAnilistIds.has(dbAnime.anilistId)) continue
+              if (favoriteTitles.has((dbAnime.title ?? '').toLowerCase())) continue
+              if (onboardingIds.has(dbAnime.id)) continue
+              candidates.push(dbAnime)
+              continue
+            }
         } catch (e) {
           // fallback: if upsert fails, skip candidate
           continue
@@ -299,6 +329,10 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
       await supabase.from('user_recommendations').upsert({ user_id: userId, recommendations: final, updated_at: new Date().toISOString(), fingerprint: fingerprintString }, { onConflict: 'user_id' })
     } catch (e) {
       // ignore cache write errors
+    }
+    // release distributed lock if held
+    if (lockToken && redisHelpers?.releaseLock) {
+      try { await redisHelpers.releaseLock(lockKey, lockToken) } catch {}
     }
 
     return final
