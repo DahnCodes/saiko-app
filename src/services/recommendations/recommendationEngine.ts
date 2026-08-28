@@ -6,6 +6,7 @@ import { getStarterAnime, getAnimeByAnilistId, mapAnime } from '../animeService'
 import * as aniList from '../../services/aniListService'
 
 export const CACHE_TTL_SECONDS = 60 * 60 * 4 // 4 hours
+const inFlightComputations = new Map<string, Promise<AnimeRecommendation[]>>()
 
 function clamp(v: number, a = 0, b = 1) { return Math.max(a, Math.min(b, v)) }
 
@@ -86,214 +87,230 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
   const limit = options?.limit ?? 5
   if (!supabase) throw new Error('Recommendation service not configured')
 
-  // try cache
-  try {
-    if (!options?.forceRefresh) {
-      const { data: cached, error: cacheErr } = await supabase.from('user_recommendations').select('recommendations,updated_at').eq('user_id', userId).maybeSingle()
-      if (!cacheErr && cached?.updated_at) {
+  // load DNA early to compute fingerprint for safe caching
+  const dna = await getAnimeDNA(userId)
+  const fingerprint = dna.traits.slice(0, 8)
+  const fingerprintNames = fingerprint.map((t) => t.name)
+  const fingerprintString = JSON.stringify(fingerprint.map((t) => ({ n: t.name, s: t.score })))
+
+  // try per-user cached recommendations (only when fingerprint matches and not forced)
+  if (!options?.forceRefresh) {
+    try {
+      const { data: cached, error: cacheErr } = await supabase.from('user_recommendations').select('recommendations,updated_at,fingerprint').eq('user_id', userId).maybeSingle()
+      if (!cacheErr && cached?.updated_at && cached?.fingerprint === fingerprintString) {
         const updated = new Date(cached.updated_at).getTime()
         if ((Date.now() - updated) / 1000 < CACHE_TTL_SECONDS) {
           return cached.recommendations as AnimeRecommendation[]
         }
       }
-    }
-  } catch {
-    // ignore cache errors
-  }
-
-  // load signals
-  const [dna, favoritesResp, starterAnime] = await Promise.all([
-    getAnimeDNA(userId),
-    supabase.from('user_favorite_anime').select('anime_id').eq('user_id', userId),
-    getStarterAnime(),
-  ])
-  const favoriteRows = (favoritesResp.data ?? []) as { anime_id: string }[]
-  const favoriteIds = new Set(favoriteRows.map((r) => r.anime_id))
-  // also collect favorite Anilist IDs to exclude AniList candidates
-  const favoriteAnilistIds = new Set<number>()
-  try {
-    if (favoriteRows.length) {
-      const { data: favAnimeRows } = await supabase.from('anime').select('anilist_id').in('id', favoriteRows.map((r) => r.anime_id))
-      for (const row of (favAnimeRows ?? [])) if (row.anilist_id) favoriteAnilistIds.add(row.anilist_id)
-    }
-  } catch {}
-  const onboardingIds = new Set((starterAnime ?? []).map((a) => a.id))
-
-  // build fingerprint from DNA traits (weighted by score)
-  const fingerprint = dna.traits.slice(0, 8)
-  const fingerprintNames = fingerprint.map((t) => t.name)
-
-  // candidate discovery: combine recent pool and genre-driven pools
-  const [recentPool, broadPool] = await Promise.all([fetchCandidatesRecent(400), fetchCandidatesBroad(800)])
-  const genrePools: Anime[] = []
-  for (const trait of fingerprint.slice(0, 5)) {
-    try {
-      const { data } = await supabase.from('anime').select('*').contains('genres', [trait.name]).limit(200)
-      if (data) genrePools.push(...((data as any[]).map(mapAnime)))
     } catch {
-      // ignore per-genre failures
+      // ignore cache errors
     }
   }
 
-  const merged = [...recentPool, ...genrePools, ...broadPool]
-  // merged is recent + genre-targeted + broad pool
-  const seen = new Set<string>()
-  const candidates: Anime[] = []
-  for (const a of merged) {
-    if (!a || !a.id) continue
-    if (seen.has(a.id)) continue
-    seen.add(a.id)
-    // Exclusions: user's favorites (Core 3), onboarding starter titles (calibration), and any favorites
-    if (favoriteIds.has(a.id)) continue
-    if (onboardingIds.has(a.id)) continue
-    candidates.push(a)
+  // dedupe concurrent computations per user
+  if (!options?.forceRefresh && inFlightComputations.has(userId)) {
+    return await inFlightComputations.get(userId)!
   }
 
-  // Integrate AniList candidates (ensure only Japanese anime)
-  try {
-    const dnaMap: Record<string, number> = {}
-    for (const t of fingerprint) dnaMap[t.name] = t.score
-    const excludeNums = Array.from(new Set([...favoriteIds].map((id) => parseInt(id, 10)).filter(Boolean)))
-    const aniCandidates = await aniList.findCandidates(dnaMap, excludeNums, 50)
-    // build onboarding Anilist id set to ensure exclusion across systems
-    const onboardingAnilistIds = new Set((starterAnime ?? []).map((a) => a.anilistId).filter(Boolean))
-    for (const c of aniCandidates) {
-      if (c.countryOfOrigin && c.countryOfOrigin !== 'JP') continue
-      if (onboardingAnilistIds.has(c.id)) continue
-      if (favoriteAnilistIds.has(c.id)) continue
-      // try to find a matching DB row by anilist_id
-      try {
-        const dbRow = await getAnimeByAnilistId(c.id)
-        if (dbRow) {
-          if (seen.has(dbRow.id)) continue
-          seen.add(dbRow.id)
-          if (favoriteIds.has(dbRow.id)) continue
-          if (onboardingIds.has(dbRow.id)) continue
-          candidates.push(dbRow)
-          continue
-        }
-      } catch {}
+  const computePromise = (async (): Promise<AnimeRecommendation[]> => {
+    // load other signals
+    const [favoritesResp, starterAnime] = await Promise.all([
+      supabase.from('user_favorite_anime').select('anime_id').eq('user_id', userId),
+      getStarterAnime(),
+    ])
+    const favoriteRows = (favoritesResp.data ?? []) as { anime_id: string }[]
+    const favoriteIds = new Set(favoriteRows.map((r) => r.anime_id))
+    // also collect favorite Anilist IDs to exclude AniList candidates
+    const favoriteAnilistIds = new Set<number>()
+    try {
+      if (favoriteRows.length) {
+        const { data: favAnimeRows } = await supabase.from('anime').select('anilist_id').in('id', favoriteRows.map((r) => r.anime_id))
+        for (const row of (favAnimeRows ?? [])) if (row.anilist_id) favoriteAnilistIds.add(row.anilist_id)
+      }
+    } catch {}
+    const onboardingIds = new Set((starterAnime ?? []).map((a) => a.id))
 
-      // upsert AniList candidate into local DB so we can treat it as a first-class anime
+    // candidate discovery: combine recent pool and genre-driven pools
+    const [recentPool, broadPool] = await Promise.all([fetchCandidatesRecent(400), fetchCandidatesBroad(800)])
+    const genrePools: Anime[] = []
+    for (const trait of fingerprint.slice(0, 5)) {
       try {
-        const upsertObj: any = {
-          anilist_id: c.id,
-          title: c.title?.romaji ?? c.title?.english ?? `Anime ${c.id}`,
-          title_romaji: c.title?.romaji ?? null,
-          title_english: c.title?.english ?? null,
-          cover_image: c.coverImage?.large ?? null,
-          average_score: c.averageScore ?? null,
-          popularity: c.popularity ?? null,
-          genres: c.genres ?? [],
-          season_year: c.seasonYear ?? null,
-        }
-        await supabase.from('anime').upsert(upsertObj, { onConflict: 'anilist_id' })
-        const dbAnime = await getAnimeByAnilistId(c.id)
-        if (dbAnime) {
-          if (seen.has(dbAnime.id)) continue
-          seen.add(dbAnime.id)
-          if (favoriteIds.has(dbAnime.id)) continue
-          if (onboardingIds.has(dbAnime.id)) continue
-          candidates.push(dbAnime)
-          continue
-        }
-      } catch (e) {
-        // fallback: if upsert fails, skip candidate
-        continue
+        const { data } = await supabase.from('anime').select('*').contains('genres', [trait.name]).limit(200)
+        if (data) genrePools.push(...((data as any[]).map(mapAnime)))
+      } catch {
+        // ignore per-genre failures
       }
     }
-  } catch (e) {
-    // ignore AniList failures — continue with DB candidates
-    console.warn('AniList integration failed', e)
-  }
 
-  // score each candidate
-  const scored = candidates.map((anime) => {
-    const dnaMatch = computeDNAMatchNormalized(anime, fingerprint)
-    const genreOverlap = (anime.genres ?? []).filter((g) => fingerprintNames.includes(g)).length
-    const genreScore = clamp(genreOverlap / Math.max(fingerprint.length, 1), 0, 1)
-    const quality = clamp(((anime.score ?? 0) / 10), 0, 1)
-    const recency = computeRecencyBonus(anime)
-    const freshness = (() => {
-      const currentYear = new Date().getFullYear()
-      if (!anime.year) return 0
-      return currentYear - anime.year <= 1 ? 1 : 0
-    })()
-    const discovery = ((anime as any).is_hidden_gem ? 1 : 0)
-    const popularityPenalty = computePopularityPenalty(anime)
-
-    // romance bonus (only awarded when romance aligns with fingerprint)
-    const romanceBonus = ((anime.genres ?? []).includes('Romance') && dnaMatch >= 0.25) ? 0.03 : 0
-
-    const total = (
-      dnaMatch * WEIGHTS.dnaMatch +
-      quality * WEIGHTS.quality +
-      discovery * WEIGHTS.discovery +
-      recency * WEIGHTS.recency +
-      genreScore * WEIGHTS.genre +
-      freshness * WEIGHTS.freshness +
-      romanceBonus -
-      popularityPenalty * POPULARITY_PENALTY_WEIGHT
-    )
-
-    const compScore: RecommendationScore = {
-      total,
-      dnaMatch,
-      quality: quality * 10,
-      recency,
-      discovery,
-      popularityPenalty,
+    const merged = [...recentPool, ...genrePools, ...broadPool]
+    // merged is recent + genre-targeted + broad pool
+    const seen = new Set<string>()
+    const candidates: Anime[] = []
+    for (const a of merged) {
+      if (!a || !a.id) continue
+      if (seen.has(a.id)) continue
+      seen.add(a.id)
+      // Exclusions: user's favorites (Core 3), onboarding starter titles (calibration), and any favorites
+      if (favoriteIds.has(a.id)) continue
+      if (onboardingIds.has(a.id)) continue
+      candidates.push(a)
     }
 
-    const significantGenres = (anime.genres ?? []).filter((g) => fingerprintNames.includes(g))
-    const reason = reasonFromComponents(anime, significantGenres)
-    return { anime, score: compScore, matchPercent: scoreToPercent(total, -1, 1.2), reason }
-  })
+    // Integrate AniList candidates (ensure only Japanese anime)
+    try {
+      const dnaMap: Record<string, number> = {}
+      for (const t of fingerprint) dnaMap[t.name] = t.score
+      const excludeNums = Array.from(new Set([...favoriteIds].map((id) => parseInt(id, 10)).filter(Boolean)))
+      const aniCandidates = await aniList.findCandidates(dnaMap, excludeNums, 50)
+      // build onboarding Anilist id set to ensure exclusion across systems
+      const onboardingAnilistIds = new Set((starterAnime ?? []).map((a) => a.anilistId).filter(Boolean))
+      for (const c of aniCandidates) {
+        if (c.countryOfOrigin && c.countryOfOrigin !== 'JP') continue
+        if (onboardingAnilistIds.has(c.id)) continue
+        if (favoriteAnilistIds.has(c.id)) continue
+        // try to find a matching DB row by anilist_id
+        try {
+          const dbRow = await getAnimeByAnilistId(c.id)
+          if (dbRow) {
+            if (seen.has(dbRow.id)) continue
+            seen.add(dbRow.id)
+            if (favoriteIds.has(dbRow.id)) continue
+            if (onboardingIds.has(dbRow.id)) continue
+            candidates.push(dbRow)
+            continue
+          }
+        } catch {}
 
-  // prefer higher-scored and prefer Tier 1 (score >= 8.0) when filling
-  scored.sort((a, b) => b.score.total - a.score.total)
-
-
-  // build final list preferring high-quality tiers but allowing fallback
-  const tier1: typeof scored = []
-  const tier2: typeof scored = []
-  const tier3: typeof scored = []
-  for (const s of scored) {
-    const sc = s.anime.score ?? 0
-    if (sc >= 8.0) tier1.push(s)
-    else if (sc >= 7.5) tier2.push(s)
-    else if (sc >= 7.0) tier3.push(s)
-  }
-
-  const selection: typeof scored = []
-  for (const pool of [tier1, tier2, tier3]) {
-    for (const item of pool) {
-      if (selection.length >= limit) break
-      selection.push(item)
+        // upsert AniList candidate into local DB so we can treat it as a first-class anime
+        try {
+          const upsertObj: any = {
+            anilist_id: c.id,
+            title: c.title?.romaji ?? c.title?.english ?? `Anime ${c.id}`,
+            title_romaji: c.title?.romaji ?? null,
+            title_english: c.title?.english ?? null,
+            cover_image: c.coverImage?.large ?? null,
+            average_score: c.averageScore ?? null,
+            popularity: c.popularity ?? null,
+            genres: c.genres ?? [],
+            season_year: c.seasonYear ?? null,
+          }
+          await supabase.from('anime').upsert(upsertObj, { onConflict: 'anilist_id' })
+          const dbAnime = await getAnimeByAnilistId(c.id)
+          if (dbAnime) {
+            if (seen.has(dbAnime.id)) continue
+            seen.add(dbAnime.id)
+            if (favoriteIds.has(dbAnime.id)) continue
+            if (onboardingIds.has(dbAnime.id)) continue
+            candidates.push(dbAnime)
+            continue
+          }
+        } catch (e) {
+          // fallback: if upsert fails, skip candidate
+          continue
+        }
+      }
+    } catch (e) {
+      // ignore AniList failures — continue with DB candidates
+      console.warn('AniList integration failed', e)
     }
-    if (selection.length >= limit) break
-  }
 
-  // if still short, fill from remaining scored
-  if (selection.length < limit) {
+    // score each candidate
+    const scored = candidates.map((anime) => {
+      const dnaMatch = computeDNAMatchNormalized(anime, fingerprint)
+      const genreOverlap = (anime.genres ?? []).filter((g) => fingerprintNames.includes(g)).length
+      const genreScore = clamp(genreOverlap / Math.max(fingerprint.length, 1), 0, 1)
+      const quality = clamp(((anime.score ?? 0) / 10), 0, 1)
+      const recency = computeRecencyBonus(anime)
+      const freshness = (() => {
+        const currentYear = new Date().getFullYear()
+        if (!anime.year) return 0
+        return currentYear - anime.year <= 1 ? 1 : 0
+      })()
+      const discovery = ((anime as any).is_hidden_gem ? 1 : 0)
+      const popularityPenalty = computePopularityPenalty(anime)
+
+      // romance bonus (only awarded when romance aligns with fingerprint)
+      const romanceBonus = ((anime.genres ?? []).includes('Romance') && dnaMatch >= 0.25) ? 0.03 : 0
+
+      const total = (
+        dnaMatch * WEIGHTS.dnaMatch +
+        quality * WEIGHTS.quality +
+        discovery * WEIGHTS.discovery +
+        recency * WEIGHTS.recency +
+        genreScore * WEIGHTS.genre +
+        freshness * WEIGHTS.freshness +
+        romanceBonus -
+        popularityPenalty * POPULARITY_PENALTY_WEIGHT
+      )
+
+      const compScore: RecommendationScore = {
+        total,
+        dnaMatch,
+        quality: quality * 10,
+        recency,
+        discovery,
+        popularityPenalty,
+      }
+
+      const significantGenres = (anime.genres ?? []).filter((g) => fingerprintNames.includes(g))
+      const reason = reasonFromComponents(anime, significantGenres)
+      return { anime, score: compScore, matchPercent: scoreToPercent(total, -1, 1.2), reason }
+    })
+
+    // prefer higher-scored and prefer Tier 1 (score >= 8.0) when filling
+    scored.sort((a, b) => b.score.total - a.score.total)
+
+
+    // build final list preferring high-quality tiers but allowing fallback
+    const tier1: typeof scored = []
+    const tier2: typeof scored = []
+    const tier3: typeof scored = []
     for (const s of scored) {
-      if (selection.length >= limit) break
-      if (!selection.includes(s)) selection.push(s)
+      const sc = s.anime.score ?? 0
+      if (sc >= 8.0) tier1.push(s)
+      else if (sc >= 7.5) tier2.push(s)
+      else if (sc >= 7.0) tier3.push(s)
     }
-  }
 
-  // romance is handled as a small scoring bonus earlier; do not force inclusion
+    const selection: typeof scored = []
+    for (const pool of [tier1, tier2, tier3]) {
+      for (const item of pool) {
+        if (selection.length >= limit) break
+        selection.push(item)
+      }
+      if (selection.length >= limit) break
+    }
 
-  const final = selection.slice(0, limit).map((r) => ({ ...r, matchPercent: clamp(r.matchPercent, 0, 100) }))
+    // if still short, fill from remaining scored
+    if (selection.length < limit) {
+      for (const s of scored) {
+        if (selection.length >= limit) break
+        if (!selection.includes(s)) selection.push(s)
+      }
+    }
 
-  // cache best-effort
+    // romance is handled as a small scoring bonus earlier; do not force inclusion
+
+    const final = selection.slice(0, limit).map((r) => ({ ...r, matchPercent: clamp(r.matchPercent, 0, 100) }))
+
+    // write per-user cache with fingerprint
+    try {
+      await supabase.from('user_recommendations').upsert({ user_id: userId, recommendations: final, updated_at: new Date().toISOString(), fingerprint: fingerprintString }, { onConflict: 'user_id' })
+    } catch (e) {
+      // ignore cache write errors
+    }
+
+    return final
+  })()
+
+  inFlightComputations.set(userId, computePromise)
   try {
-    await supabase.from('user_recommendations').upsert({ user_id: userId, recommendations: final, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
-  } catch {
-    // ignore
+    const res = await computePromise
+    return res
+  } finally {
+    inFlightComputations.delete(userId)
   }
-
-  return final
 }
 
 // Invalidate and regenerate recommendations for a user (client-safe upsert)
