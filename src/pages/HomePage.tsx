@@ -1,52 +1,52 @@
-import { useCallback, useEffect, useState } from 'react'
+import {  useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getTopAnime } from '../services/animeService.ts'
-import { getPersonalizedHomeRecommendations, regeneratePersonalizedHomeRecommendations, CACHE_TTL_SECONDS } from '../services/recommendations/recommendationEngine'
-import type { AnimeRecommendation } from '../services/recommendations/recommendationTypes'
-import { useAuth } from '../context/AuthContext.tsx'
+// import { getPersonalizedHomeRecommendations, regeneratePersonalizedHomeRecommendations, CACHE_TTL_SECONDS } from '../services/recommendations/recommendationEngine'
+// import type { AnimeRecommendation } from '../services/recommendations/recommendationTypes'
+// import { useAuth } from '../context/AuthContext.tsx'
 import type { Anime } from '../types/anime.ts'
 import '../anime.css'
 import '../home.css'
 import '../home-overrides.css'
 
 export default function HomePage() {
-  const { user } = useAuth()
+//   const { user } = useAuth()
   const [top, setTop] = useState<Anime[]>([])
   const [topStatus, setTopStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [featuredIndex, setFeaturedIndex] = useState(0)
 
   // personalized recommendations
-  const [saikoRecs, setSaikoRecs] = useState<AnimeRecommendation[]>([])
-  const [saikoStatus, setSaikoStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+//   const [saikoRecs, setSaikoRecs] = useState<AnimeRecommendation[]>([])
+//   const [saikoStatus, setSaikoStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
 
-  const loadSaikoRecs = useCallback(async () => {
-    if (!user) return
-    setSaikoStatus('loading')
-    try {
-      const results = await getPersonalizedHomeRecommendations(user.id, { limit: 5 })
-      setSaikoRecs(results)
-      setSaikoStatus('success')
-    } catch (e) {
-      setSaikoStatus('error')
-    }
-  }, [user])
+//   const loadSaikoRecs = useCallback(async () => {
+//     if (!user) return
+//     setSaikoStatus('loading')
+//     try {
+//       const results = await getPersonalizedHomeRecommendations(user.id, { limit: 5 })
+//       setSaikoRecs(results)
+//       setSaikoStatus('success')
+//     } catch (e) {
+//       setSaikoStatus('error')
+//     }
+//   }, [user])
 
   // Periodically refresh recommendations in background to match TTL
-  useEffect(() => {
-    if (!user) return
-    const interval = window.setInterval(() => {
-      void (async () => {
-        try {
-          const results = await regeneratePersonalizedHomeRecommendations(user.id, { limit: 5 })
-          setSaikoRecs(results)
-          setSaikoStatus('success')
-        } catch {
-          // keep previous state on failure
-        }
-      })()
-    }, CACHE_TTL_SECONDS * 1000)
-    return () => window.clearInterval(interval)
-  }, [user])
+//   useEffect(() => {
+//     if (!user) return
+//     const interval = window.setInterval(() => {
+//       void (async () => {
+//         try {
+//           const results = await regeneratePersonalizedHomeRecommendations(user.id, { limit: 5 })
+//           setSaikoRecs(results)
+//           setSaikoStatus('success')
+//         } catch {
+//           // keep previous state on failure
+//         }
+//       })()
+//     }, CACHE_TTL_SECONDS * 1000)
+//     return () => window.clearInterval(interval)
+//   }, [user])
 
   useEffect(() => {
     getTopAnime(6).then((items) => { setTop(items); setTopStatus('success') }).catch(() => setTopStatus('error'))
@@ -58,7 +58,7 @@ export default function HomePage() {
     return () => window.clearInterval(interval)
   }, [top.length])
 
-  useEffect(() => { void loadSaikoRecs() }, [loadSaikoRecs])
+//   useEffect(() => { void loadSaikoRecs() }, [loadSaikoRecs])
 
   const featured = top[featuredIndex % Math.max(top.length, 1)]
 
