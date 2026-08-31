@@ -4,17 +4,13 @@ import type { AnimeRecommendation, RecommendationOptions, RecommendationScore } 
 import { getAnimeDNA } from '../dnaService'
 import { getStarterAnime, getAnimeByAnilistId, mapAnime, getAnimeById } from '../animeService'
 import * as aniList from '../../services/aniListService'
+import { extractTraits } from './traits'
+import { buildTasteMap, scoreCandidateTraits, type TasteMap } from './taste/buildTasteMap'
 
 export const CACHE_TTL_SECONDS = 60 * 60 * 4 // 4 hours
 const inFlightComputations = new Map<string, Promise<AnimeRecommendation[]>>()
 
 function clamp(v: number, a = 0, b = 1) { return Math.max(a, Math.min(b, v)) }
-
-function scoreToPercent(score: number, min = -10, max = 40) {
-  // Normalize deterministic score into 0-100 range using expected min/max
-  const normalized = (score - min) / (max - min)
-  return Math.round(clamp(normalized, 0, 1) * 100)
-}
 
 async function fetchCandidatesBroad(limit = 1000): Promise<Anime[]> {
   if (!supabase) throw new Error('Supabase not configured')
@@ -55,6 +51,67 @@ function computePopularityPenalty(anime: Anime) {
   return normalized
 }
 
+// ============================================================
+// SAIKO Trait-Based Recommendation Engine
+// ============================================================
+
+/**
+ * Extract SAIKO trait IDs from an anime object using its metadata.
+ * Falls back gracefully if extraction fails.
+ */
+function extractAnimeTraits(anime: Anime): string[] {
+  try {
+    return extractTraits({
+      genres: anime.genres ?? [],
+      synopsis: anime.synopsis,
+      skipSynopsis: false,
+    })
+  } catch {
+    // Fallback: map genres directly if trait extraction fails
+    const { mapGenresToTraits } = require('./traits/metadataMapping')
+    return mapGenresToTraits(anime.genres ?? [])
+  }
+}
+
+/**
+ * Build a SAIKO Taste Map from the user's Core 3 anime selections.
+ * Returns null if building fails (fallback to genre-based matching).
+ */
+async function buildSaikoTasteMap(favoriteAnimeObjs: Anime[]): Promise<TasteMap | null> {
+  if (!favoriteAnimeObjs.length) return null
+  try {
+    const traitArrays = favoriteAnimeObjs.map((anime) => extractAnimeTraits(anime))
+    return buildTasteMap(traitArrays)
+  } catch (e) {
+    console.warn('Failed to build SAIKO Taste Map, falling back to genre matching', e)
+    return null
+  }
+}
+
+/**
+ * Compute trait-based match score for a candidate anime against the user's Taste Map.
+ * Returns a normalized 0-1 match score, or 0 if the candidate is ineligible.
+ */
+function computeTraitMatch(
+  anime: Anime,
+  tasteMap: TasteMap,
+): { normalizedMatch: number; meaningfulCount: number; isEligible: boolean } {
+  const traitIds = extractAnimeTraits(anime)
+  const result = scoreCandidateTraits(traitIds, tasteMap)
+
+  if (!result.isEligible) {
+    return { normalizedMatch: 0, meaningfulCount: result.meaningfulMatchCount, isEligible: false }
+  }
+
+  // Normalize match score: divide by max possible score
+  // Max possible = sum of all taste map weights
+  const maxPossible = tasteMap.entries.reduce((sum, e) => sum + e.weight, 0)
+  const normalizedMatch = maxPossible > 0 ? clamp(result.weightedScore / maxPossible, 0, 1) : 0
+
+  return { normalizedMatch, meaningfulCount: result.meaningfulMatchCount, isEligible: true }
+}
+
+// Legacy DNA match for fallback
 function computeDNAMatchNormalized(anime: Anime, dnaTraits: { name: string; score: number }[]) {
   if (!dnaTraits || !dnaTraits.length) return 0
   const traitMap = new Map(dnaTraits.map((t) => [t.name, t.score / 100]))
@@ -64,45 +121,51 @@ function computeDNAMatchNormalized(anime: Anime, dnaTraits: { name: string; scor
   return clamp(overlap / Math.max(maxPossible, 1), 0, 1)
 }
 
-function reasonFromComponents(anime: Anime, significantGenres: string[]) {
+function reasonFromComponents(anime: Anime, significantGenres: string[], matchingTraits?: string[]) {
   const parts: string[] = []
   if (significantGenres.length) parts.push(`Matches your interest in ${significantGenres.slice(0, 2).join(' and ')}`)
+  else if (matchingTraits?.length) {
+    const { getTraitById } = require('./traits')
+    const labels = matchingTraits.slice(0, 2).map((id: string) => getTraitById(id)?.label ?? id)
+    if (labels.length) parts.push(`Matches ${labels.join(' and ')}`)
+  }
   if (anime.score) parts.push(`Rated ${anime.score.toFixed(1)}`)
   return parts.join(' · ')
 }
 
 // FIRE weights (centralized)
 const WEIGHTS = {
-  dnaMatch: 0.35, // Core 3 similarity
-  quality: 0.25, // quality (score)
-  discovery: 0.15, // discovery / hidden-gem bonus
-  recency: 0.10, // recency preference
-  genre: 0.10, // genre/theme compatibility
+  dnaMatch: 0.35, // Core 3 similarity (legacy genre-based)
+  traitMatch: 0.40, // SAIKO trait-based matching (primary)
+  quality: 0.20, // quality (score)
+  discovery: 0.10, // hidden-gem bonus
+  recency: 0.08, // recency preference
   freshness: 0.05, // freshness / season proximity
 }
 
 const POPULARITY_PENALTY_WEIGHT = 0.20
 
+// ============================================================
+// Main Recommendation Function
+// ============================================================
+
 export async function getPersonalizedHomeRecommendations(userId: string, options?: RecommendationOptions): Promise<AnimeRecommendation[]> {
   const limit = options?.limit ?? 5
   if (!supabase) throw new Error('Recommendation service not configured')
 
-  // load DNA early to compute fingerprint for safe caching
+  // load DNA early for fingerprint
   const dna = await getAnimeDNA(userId)
   const fingerprint = dna.traits.slice(0, 8)
   const fingerprintNames = fingerprint.map((t) => t.name)
   const fingerprintString = JSON.stringify(fingerprint.map((t) => ({ n: t.name, s: t.score })))
 
-  // For correctness, always compute recommendations per request (no shared cache read).
-  // Dedupe concurrent computations per user to avoid duplicate work from multiple tabs.
   if (inFlightComputations.has(userId)) {
     return await inFlightComputations.get(userId)!
   }
 
-  // Distributed lock key
+  // Distributed lock
   const lockKey = `recompute:${userId}`
   let lockToken: string | null = null
-  // attempt to load redis lock helpers only on server (avoid bundling ioredis into client)
   let redisHelpers: any = null
   try {
     const hasRedisEnv = (globalThis as any).process?.env?.REDIS_URL || (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_REDIS_URL)
@@ -116,11 +179,10 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
     lockToken = null
     redisHelpers = null
   }
-  // If a distributed lock exists and we didn't acquire it, poll cache for up to 5s
+
   if (!lockToken) {
     const start = Date.now()
     while (Date.now() - start < 5000) {
-      // try read per-user cached recommendations (fingerprint must match)
       try {
         const { data: cached } = await supabase.from('user_recommendations').select('recommendations,updated_at,fingerprint').eq('user_id', userId).maybeSingle()
         if (cached && cached.fingerprint === fingerprintString) {
@@ -132,26 +194,33 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
       } catch {
         // ignore
       }
-      // sleep briefly
       await new Promise((res) => setTimeout(res, 250))
     }
   }
 
   const computePromise = (async (): Promise<AnimeRecommendation[]> => {
-    // load other signals
+    // Load favorites and starter anime
     const [favoritesResp, starterAnime] = await Promise.all([
       supabase.from('user_favorite_anime').select('anime_id').eq('user_id', userId),
       getStarterAnime(),
     ])
-    const favoriteRows = (favoritesResp.data ?? []) as { anime_id: string }[]
-    // Resolve favorite anime fully to get canonical DB id, AniList id and titles
-    const favoriteAnimeObjs = await Promise.all(favoriteRows.map((r: { anime_id: string }) => getAnimeById(r.anime_id).catch(() => null)))
-    const favoriteIds = new Set<string>(favoriteAnimeObjs.filter(Boolean).map((a: any) => String(a.id)))
-    const favoriteAnilistIds = new Set<number>(favoriteAnimeObjs.filter(Boolean).map((a: any) => a.anilistId).filter(Boolean) as number[])
-    const favoriteTitles = new Set<string>(favoriteAnimeObjs.filter(Boolean).map((a: any) => (a.title ?? '').toLowerCase()))
-    const onboardingIds = new Set((starterAnime ?? []).map((a) => a.id))
 
-    // candidate discovery: combine recent pool and genre-driven pools
+    const favoriteRows = (favoritesResp.data ?? []) as { anime_id: string }[]
+    const favoriteAnimeObjs = await Promise.all(
+      favoriteRows.map((r: { anime_id: string }) => getAnimeById(r.anime_id).catch(() => null))
+    )
+    const validFavorites = favoriteAnimeObjs.filter(Boolean) as Anime[]
+    const favoriteIds = new Set<string>(validFavorites.map((a) => String(a.id)))
+    const favoriteAnilistIds = new Set<number>(validFavorites.map((a) => a.anilistId).filter(Boolean) as number[])
+    const favoriteTitles = new Set<string>(validFavorites.map((a) => (a.title ?? '').toLowerCase()))
+    const onboardingIds = new Set<string>((starterAnime ?? []).map((a) => a.id))
+
+    // ============================================================
+    // Build SAIKO Taste Map from Core 3 anime
+    // ============================================================
+    const tasteMap = await buildSaikoTasteMap(validFavorites)
+
+    // Candidate discovery
     const [recentPool, broadPool] = await Promise.all([fetchCandidatesRecent(400), fetchCandidatesBroad(800)])
     const genrePools: Anime[] = []
     for (const trait of fingerprint.slice(0, 5)) {
@@ -164,7 +233,6 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
     }
 
     const merged = [...recentPool, ...genrePools, ...broadPool]
-    // merged is recent + genre-targeted + broad pool
     const seen = new Set<string>()
     const candidates: Anime[] = []
     for (const a of merged) {
@@ -172,28 +240,26 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
       const aid = String(a.id)
       if (seen.has(aid)) continue
       seen.add(aid)
-      // Exclusions: user's favorites (Core 3) by DB id, AniList id, and title, plus onboarding starter titles
+      // Exclusions: Core 3 (by DB id, AniList id, title) + onboarding anime
       if (favoriteIds.has(aid)) continue
       if (a.anilistId && favoriteAnilistIds.has(a.anilistId)) continue
       if (favoriteTitles.has((a.title ?? '').toLowerCase())) continue
-      if (onboardingIds.has(a.id)) continue
-      if (onboardingIds.has(a.id)) continue
+      if (onboardingIds.has(aid)) continue
       candidates.push(a)
     }
 
-    // Integrate AniList candidates (ensure only Japanese anime)
+    // Integrate AniList candidates
     try {
       const dnaMap: Record<string, number> = {}
       for (const t of fingerprint) dnaMap[t.name] = t.score
       const excludeNums = Array.from(new Set([...favoriteIds].map((id) => parseInt(id, 10)).filter(Boolean)))
       const aniCandidates = await aniList.findCandidates(dnaMap, excludeNums, 50)
-      // build onboarding Anilist id set to ensure exclusion across systems
-      const onboardingAnilistIds = new Set((starterAnime ?? []).map((a) => a.anilistId).filter(Boolean))
+      const onboardingAnilistIds = new Set<number>((starterAnime ?? []).map((a) => a.anilistId).filter(Boolean) as number[])
+
       for (const c of aniCandidates) {
         if (c.countryOfOrigin && c.countryOfOrigin !== 'JP') continue
         if (onboardingAnilistIds.has(c.id)) continue
         if (favoriteAnilistIds.has(c.id)) continue
-        // try to find a matching DB row by anilist_id
         try {
           const dbRow = await getAnimeByAnilistId(c.id)
           if (dbRow) {
@@ -201,7 +267,7 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
             if (seen.has(dbId)) continue
             seen.add(dbId)
             if (favoriteIds.has(dbId)) continue
-            if (dbRow.anilistId && favoriteAnilistIds.has(dbRow.anilistId)) continue
+            if (favoriteAnilistIds.has(dbRow.anilistId)) continue
             if (favoriteTitles.has((dbRow.title ?? '').toLowerCase())) continue
             if (onboardingIds.has(dbRow.id)) continue
             candidates.push(dbRow)
@@ -209,7 +275,6 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
           }
         } catch {}
 
-        // upsert AniList candidate into local DB so we can treat it as a first-class anime
         try {
           const upsertObj: any = {
             anilist_id: c.id,
@@ -222,32 +287,51 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
             genres: c.genres ?? [],
             season_year: c.seasonYear ?? null,
           }
-            await supabase.from('anime').upsert(upsertObj, { onConflict: 'anilist_id' })
-            const dbAnime = await getAnimeByAnilistId(c.id)
-            if (dbAnime) {
-              const dbId = String(dbAnime.id)
-              if (seen.has(dbId)) continue
-              seen.add(dbId)
-              if (favoriteIds.has(dbId)) continue
-              if (dbAnime.anilistId && favoriteAnilistIds.has(dbAnime.anilistId)) continue
-              if (favoriteTitles.has((dbAnime.title ?? '').toLowerCase())) continue
-              if (onboardingIds.has(dbAnime.id)) continue
-              candidates.push(dbAnime)
-              continue
-            }
-        } catch (e) {
-          // fallback: if upsert fails, skip candidate
+          await supabase.from('anime').upsert(upsertObj, { onConflict: 'anilist_id' })
+          const dbAnime = await getAnimeByAnilistId(c.id)
+          if (dbAnime) {
+            const dbId = String(dbAnime.id)
+            if (seen.has(dbId)) continue
+            seen.add(dbId)
+            if (favoriteIds.has(dbId)) continue
+            if (favoriteAnilistIds.has(dbAnime.anilistId)) continue
+            if (favoriteTitles.has((dbAnime.title ?? '').toLowerCase())) continue
+            if (onboardingIds.has(dbAnime.id)) continue
+            candidates.push(dbAnime)
+          }
+        } catch {
           continue
         }
       }
     } catch (e) {
-      // ignore AniList failures — continue with DB candidates
       console.warn('AniList integration failed', e)
     }
 
-    // score each candidate
+    // ============================================================
+    // Score Each Candidate
+    // ============================================================
     const scored = candidates.map((anime) => {
-      const dnaMatch = computeDNAMatchNormalized(anime, fingerprint)
+      // Primary: SAIKO trait-based matching
+      let traitMatchNormalized = 0
+      let meaningfulMatchCount = 0
+      let matchingTraitIds: string[] = []
+      let result: ReturnType<typeof scoreCandidateTraits> | null = null
+
+      if (tasteMap) {
+        const traitResult = computeTraitMatch(anime, tasteMap)
+        traitMatchNormalized = traitResult.normalizedMatch
+        meaningfulMatchCount = traitResult.meaningfulCount
+
+        if (traitResult.isEligible) {
+          const candidateTraitIds = extractAnimeTraits(anime)
+          result = scoreCandidateTraits(candidateTraitIds, tasteMap)
+          matchingTraitIds = result.matchingTraitIds
+        }
+      }
+
+      // Fallback: legacy DNA genre match if no taste map
+      const dnaMatch = tasteMap ? 0 : computeDNAMatchNormalized(anime, fingerprint)
+
       const genreOverlap = (anime.genres ?? []).filter((g) => fingerprintNames.includes(g)).length
       const genreScore = clamp(genreOverlap / Math.max(fingerprint.length, 1), 0, 1)
       const quality = clamp(((anime.score ?? 0) / 10), 0, 1)
@@ -260,15 +344,17 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
       const discovery = ((anime as any).is_hidden_gem ? 1 : 0)
       const popularityPenalty = computePopularityPenalty(anime)
 
-      // romance bonus (only awarded when romance aligns with fingerprint)
-      const romanceBonus = ((anime.genres ?? []).includes('Romance') && dnaMatch >= 0.25) ? 0.03 : 0
+      // Romance bonus: only when romance aligns with matching
+      const romanceBonus = ((anime.genres ?? []).includes('Romance') && (traitMatchNormalized >= 0.25 || dnaMatch >= 0.25)) ? 0.03 : 0
 
+      // Compose total score
       const total = (
+        traitMatchNormalized * WEIGHTS.traitMatch +
         dnaMatch * WEIGHTS.dnaMatch +
         quality * WEIGHTS.quality +
         discovery * WEIGHTS.discovery +
         recency * WEIGHTS.recency +
-        genreScore * WEIGHTS.genre +
+        genreScore * WEIGHTS.dnaMatch * 0.5 + // reduced genre weight since traitMatch is primary
         freshness * WEIGHTS.freshness +
         romanceBonus -
         popularityPenalty * POPULARITY_PENALTY_WEIGHT
@@ -276,7 +362,7 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
 
       const compScore: RecommendationScore = {
         total,
-        dnaMatch,
+        dnaMatch: Math.max(traitMatchNormalized, dnaMatch),
         quality: quality * 10,
         recency,
         discovery,
@@ -284,26 +370,44 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
       }
 
       const significantGenres = (anime.genres ?? []).filter((g) => fingerprintNames.includes(g))
-      const reason = reasonFromComponents(anime, significantGenres)
-      return { anime, score: compScore, matchPercent: scoreToPercent(total, -1, 1.2), reason }
+      const reason = reasonFromComponents(anime, significantGenres, matchingTraitIds)
+
+      return {
+        anime,
+        score: compScore,
+        matchPercent: Math.round(clamp(traitMatchNormalized * 0.85 + Math.min(meaningfulMatchCount / Math.max(tasteMap?.entries.length ?? 3, 3), 1) * 0.15, 0, 1) * 100),
+        reason,
+        _traitMatch: traitMatchNormalized,
+        _meaningfulCount: meaningfulMatchCount,
+        _topMatchingTraits: result?.topMatchingTraits ?? [],
+      }
     })
 
-    // prefer higher-scored and prefer Tier 1 (score >= 8.0) when filling
-    scored.sort((a, b) => b.score.total - a.score.total)
+    // ============================================================
+    // Eligibility Filter: candidates must have >= 3 meaningful trait matches
+    // If no taste map, fall back to all candidates being eligible
+    // ============================================================
+    const eligibleScored = scored.filter((s) => {
+      if (!tasteMap) return true
+      return s._meaningfulCount >= 2
+    })
 
+    // Sort by total score
+    eligibleScored.sort((a, b) => b.score.total - a.score.total)
 
-    // build final list preferring high-quality tiers but allowing fallback
-    const tier1: typeof scored = []
-    const tier2: typeof scored = []
-    const tier3: typeof scored = []
-    for (const s of scored) {
+    // Tier selection
+    const tier1: typeof eligibleScored = []
+    const tier2: typeof eligibleScored = []
+    const tier3: typeof eligibleScored = []
+
+    for (const s of eligibleScored) {
       const sc = s.anime.score ?? 0
       if (sc >= 8.0) tier1.push(s)
       else if (sc >= 7.5) tier2.push(s)
       else if (sc >= 7.0) tier3.push(s)
     }
 
-    const selection: typeof scored = []
+    const selection: typeof eligibleScored = []
     for (const pool of [tier1, tier2, tier3]) {
       for (const item of pool) {
         if (selection.length >= limit) break
@@ -312,25 +416,30 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
       if (selection.length >= limit) break
     }
 
-    // if still short, fill from remaining scored
     if (selection.length < limit) {
-      for (const s of scored) {
+      for (const s of eligibleScored) {
         if (selection.length >= limit) break
         if (!selection.includes(s)) selection.push(s)
       }
     }
 
-    // romance is handled as a small scoring bonus earlier; do not force inclusion
+    const final = selection.slice(0, limit).map((r) => ({
+      anime: r.anime,
+      score: r.score,
+      matchPercent: clamp(r.matchPercent, 0, 100),
+      reason: r.reason,
+    }))
 
-    const final = selection.slice(0, limit).map((r) => ({ ...r, matchPercent: clamp(r.matchPercent, 0, 100) }))
-
-    // write per-user cache with fingerprint
+    // Cache
     try {
-      await supabase.from('user_recommendations').upsert({ user_id: userId, recommendations: final, updated_at: new Date().toISOString(), fingerprint: fingerprintString }, { onConflict: 'user_id' })
+      await supabase.from('user_recommendations').upsert(
+        { user_id: userId, recommendations: final, updated_at: new Date().toISOString(), fingerprint: fingerprintString },
+        { onConflict: 'user_id' }
+      )
     } catch (e) {
       // ignore cache write errors
     }
-    // release distributed lock if held
+
     if (lockToken && redisHelpers?.releaseLock) {
       try { await redisHelpers.releaseLock(lockKey, lockToken) } catch {}
     }
@@ -340,39 +449,49 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
 
   inFlightComputations.set(userId, computePromise)
   try {
-    const res = await computePromise
-    return res
+    return await computePromise
   } finally {
     inFlightComputations.delete(userId)
   }
 }
 
-// Invalidate and regenerate recommendations for a user (client-safe upsert)
 export async function regeneratePersonalizedHomeRecommendations(userId: string, options?: RecommendationOptions): Promise<AnimeRecommendation[]> {
-  // Force recomputation bypassing the cache
   return await getPersonalizedHomeRecommendations(userId, { ...(options ?? {}), forceRefresh: true })
 }
 
-// Dev-only debug helper to inspect pipeline for a user
 export async function debugRecommendationPipeline(userId: string) {
   const isDev = ((globalThis as any).process?.env?.NODE_ENV === 'development') || false
   if (!isDev) throw new Error('Debug helper only available in development')
   if (!supabase) throw new Error('Supabase not configured')
+
   const dna = await getAnimeDNA(userId)
   const starter = await getStarterAnime()
   const favoriteResp = await supabase.from('user_favorite_anime').select('anime_id').eq('user_id', userId)
   const favoriteIds = (favoriteResp.data ?? []).map((r: any) => r.anime_id)
   const fingerprint = dna.traits?.slice(0, 8) ?? []
+
+  const favoriteAnimeObjs = await Promise.all(
+    favoriteIds.map((id: any) => getAnimeById(id).catch(() => null))
+  )
+  const validFavorites = favoriteAnimeObjs.filter(Boolean) as Anime[]
+  const tasteMap = await buildSaikoTasteMap(validFavorites)
+
   const anaMap: Record<string, number> = {}
   for (const t of fingerprint) anaMap[t.name] = t.score
   const candidates = await aniList.findCandidates(anaMap, favoriteIds.map((id: any) => parseInt(id, 10)), 50)
-  const counts = { recentPool: 0, genrePool: fingerprint.slice(0, 5).length, broadPool: 0, aniListCandidates: candidates.length }
+
   return {
     core3: dna.favoriteAnime.map((a) => ({ id: a.id, anilistId: a.anilistId, title: a.title })),
+    core3Traits: validFavorites.map((a) => ({
+      title: a.title,
+      traits: extractAnimeTraits(a),
+    })),
+    tasteMap: tasteMap ? {
+      entries: tasteMap.entries.map((e) => ({ traitId: e.traitId, label: e.trait.label, weight: e.weight, occurrences: e.occurrenceCount })),
+    } : null,
     fingerprint,
     onboarding: starter.map((s) => ({ id: s.id, anilistId: s.anilistId, title: s.title })),
     excludedFavorites: favoriteIds,
-    candidateCounts: counts,
     sampleAniListCandidates: candidates.slice(0, 10),
   }
 }

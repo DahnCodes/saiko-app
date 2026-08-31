@@ -1,17 +1,286 @@
-.coming-soon-page { padding: 72px 16px 96px; }
-.coming-soon-inner { max-width: 980px; margin: 0 auto; display:flex; gap:28px; align-items:center; justify-content:center; }
-.coming-soon-art { width:320px; max-width:40%; height:auto; display:block; border-radius:12px; }
-.coming-soon-copy { max-width:520px; }
-.coming-soon-copy .lead { color: var(--muted); margin-top:8px; margin-bottom:18px; }
-.coming-soon-footer { display:flex; gap:14px; align-items:center; margin-top:20px; }
-.coming-soon-hero { width:120px; height:120px; object-fit:cover; border-radius:8px; border:1px solid var(--line); }
-.muted { color: var(--muted); font-size:13px; }
-@media (max-width: 700px) {
-  .coming-soon-inner { flex-direction:column; text-align:center; }
-  .coming-soon-art { max-width:80%; width:260px; }
-  .coming-soon-hero { width:96px; height:96px; }
+/* Recommendations page */
+.recommendations-page {
+  padding: 48px 24px 96px;
+  max-width: 1280px;
+  margin: 0 auto;
 }
-@media (max-width: 420px) {
-  .coming-soon-art { width:200px; }
-  .coming-soon-copy { padding: 0 8px; }
+
+.recommendations-header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.recommendations-header .eyebrow {
+  color: var(--accent, #ff7849);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+
+.recommendations-header h1 {
+  font-size: clamp(28px, 5vw, 42px);
+  margin: 0 0 12px;
+  background: linear-gradient(120deg, #fff 0%, #b8b8b8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.recommendations-header .lead {
+  color: var(--muted, #8a8a8a);
+  max-width: 720px;
+  margin: 0 auto;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.recommendations-loading {
+  margin: 32px 0;
+}
+
+.anime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+/* Skeleton loading */
+.skeleton-card {
+  background: var(--card-bg, #15151a);
+  border: 1px solid var(--line, #25252b);
+  border-radius: 12px;
+  aspect-ratio: 3 / 4;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.8; }
+}
+
+/* Debug panel */
+.debug-panel {
+  margin-top: 48px;
+  padding: 20px;
+  background: var(--card-bg, #15151a);
+  border: 1px solid var(--line, #25252b);
+  border-radius: 12px;
+}
+
+.debug-toggle {
+  background: var(--accent, #ff7849);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.debug-content {
+  margin-top: 20px;
+  font-size: 13px;
+}
+
+.debug-content h3 {
+  margin: 16px 0 8px;
+  font-size: 14px;
+  color: var(--accent, #ff7849);
+}
+
+.debug-content ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.debug-content .trait-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 12px;
+}
+
+.debug-content .trait-tags li {
+  font-size: 11px;
+  padding: 2px 7px;
+  background: var(--tag-bg, rgba(255, 255, 255, 0.06));
+  border-radius: 4px;
+  color: var(--text-secondary, #b8b8b8);
+}
+
+.trait-profile-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.trait-profile-entry {
+  display: grid;
+  grid-template-columns: 140px 1fr 50px;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.trait-profile-name {
+  color: var(--text, #fff);
+}
+
+.trait-profile-pct {
+  text-align: right;
+  color: var(--accent, #ff7849);
+  font-weight: 600;
+}
+
+.trait-bar-wrap {
+  background: var(--line, #25252b);
+  border-radius: 4px;
+  overflow: hidden;
+  height: 8px;
+}
+
+.trait-bar-fill {
+  background: var(--accent, #ff7849);
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+/* State panels */
+.state-panel {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text, #fff);
+}
+
+.state-panel h2 {
+  margin: 8px 0;
+}
+
+.state-panel .lead {
+  color: var(--muted, #8a8a8a);
+  margin-bottom: 20px;
+}
+
+.state-panel .primary-action {
+  display: inline-block;
+  background: var(--accent, #ff7849);
+  color: #fff;
+  text-decoration: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+@media (max-width: 700px) {
+  .anime-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+  }
+  .trait-profile-entry {
+    grid-template-columns: 100px 1fr 40px;
+  }
+}
+
+/* Empty state debug */
+.empty-debug {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.core-anime-debug {
+  margin: 32px 0;
+}
+
+.core-anime-debug h3 {
+  font-size: 16px;
+  margin: 0 0 16px;
+  color: var(--accent, #ff7849);
+}
+
+.core-anime-item {
+  background: var(--card-bg, #15151a);
+  border: 1px solid var(--line, #25252b);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.core-anime-item strong {
+  font-size: 15px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.core-anime-item .anime-meta {
+  font-size: 12px;
+  color: var(--muted, #8a8a8a);
+  margin: 0 0 4px;
+}
+
+.core-anime-item .trait-count {
+  font-size: 12px;
+  color: var(--accent, #ff7849);
+  margin: 0 0 8px;
+}
+
+.user-profile-debug {
+  margin: 32px 0;
+}
+
+.user-profile-debug h3 {
+  font-size: 16px;
+  margin: 0 0 16px;
+  color: var(--accent, #ff7849);
+}
+
+.debug-note {
+  margin-top: 32px;
+  padding: 16px;
+  background: rgba(255, 120, 73, 0.08);
+  border: 1px solid rgba(255, 120, 73, 0.2);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted, #8a8a8a);
+}
+
+.debug-note p {
+  margin: 4px 0;
+}
+
+/* Recommendation-specific card additions */
+.anime-match-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: rgba(255, 120, 73, 0.15);
+  color: var(--accent, #ff7849);
+  border-radius: 4px;
+  margin: 4px 0 8px;
+}
+
+.anime-reason {
+  font-size: 13px;
+  color: var(--text-secondary, #b8b8b8);
+  line-height: 1.4;
+  margin: 0 0 10px;
+}
+
+.anime-trait-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.trait-tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 7px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line, #25252b);
+  border-radius: 4px;
+  color: var(--text-secondary, #b8b8b8);
 }

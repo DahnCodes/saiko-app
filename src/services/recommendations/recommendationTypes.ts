@@ -9,7 +9,7 @@ export type AnimeTasteProfile = {
 
 export type RecommendationScore = {
   total: number
-  dnaMatch: number
+  dnaMatch: number // Also used for trait match score in SAIKO engine
   quality: number
   recency: number
   discovery: number
