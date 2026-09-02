@@ -78,7 +78,7 @@ export default function AnimeDNAPage() {
   }
 
   const top = dna.traits.slice(0, 3)
-  const xText = `SAIKO says I'm a ${dna.archetype.name} ${dna.archetype.icon}\n\n${top.map((t) => `${t.name}: ${t.score}%`).join('\n')}\n\nWhat's your Anime DNA?\n${publicUrl}`
+  const xText = `SAIKO says I'm a ${dna.name}\n\n${top.map((t) => `${t.name}: ${t.score}%`).join('\n')}\n\nWhat's your Anime DNA?\n${publicUrl}`
 
   const share = async () => {
     setBusy(true)
@@ -87,7 +87,7 @@ export default function AnimeDNAPage() {
       const blob = await imageBlob()
       const file = new File([blob], `saiko-anime-dna-${username}.png`, { type: 'image/png' })
       if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] })))
-        await navigator.share({ title: 'My Anime DNA · SAIKO', text: `SAIKO says I'm a ${dna.archetype.name} ${dna.archetype.icon}`, url: publicUrl, files: [file] })
+        await navigator.share({ title: 'My Anime DNA · SAIKO', text: `SAIKO says I'm a ${dna.name}`, url: publicUrl, files: [file] })
       else downloadDNAImage(blob, username)
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError'))
@@ -142,12 +142,20 @@ export default function AnimeDNAPage() {
   return (
     <section className="dna-page">
       <p className="eyebrow">SAIKO · YOUR TASTE, DECODED</p>
-      <h1>
-        {dna.archetype.icon} {dna.archetype.name}
-      </h1>
+      
+      {/* DNA Name */}
+      <h1>{dna.name}</h1>
+      
+      {/* DNA Tagline */}
+      {dna.tagline && dna.tagline !== dna.name && (
+        <p className="dna-tagline">{dna.tagline}</p>
+      )}
+      
+      {/* DNA Description */}
       <p className="dna-description">{dna.description}</p>
 
-      <h2>Your taste</h2>
+      {/* DNA Traits */}
+      <h2>Your traits</h2>
       {dna.traits.map((t) => (
         <div className="dna-trait" key={t.name}>
           <span>
@@ -160,7 +168,8 @@ export default function AnimeDNAPage() {
         </div>
       ))}
 
-      <h2>Your core anime</h2>
+      {/* Anime Origin */}
+      <h2>Your DNA was forged from:</h2>
       <div className="dna-favorites">
         {dna.favoriteAnime.map((a) => (
           <Link to={`/anime/${a.id}`} key={a.id}>
@@ -197,7 +206,7 @@ export default function AnimeDNAPage() {
             className="secondary-action"
             onClick={() =>
               window.open(
-                `https://wa.me/?text=${encodeURIComponent(`I just discovered my Anime DNA on SAIKO. I'm a ${dna.archetype.icon} ${dna.archetype.name}. What's yours? ${publicUrl}`)}`,
+                `https://wa.me/?text=${encodeURIComponent(`I just discovered my Anime DNA on SAIKO. I'm a ${dna.name}. What's yours? ${publicUrl}`)}`,
                 '_blank',
                 'noopener,noreferrer'
               )

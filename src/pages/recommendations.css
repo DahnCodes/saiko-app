@@ -1,286 +1,235 @@
-/* Recommendations page */
-.recommendations-page {
-  padding: 48px 24px 96px;
-  max-width: 1280px;
-  margin: 0 auto;
-}
+/* ============ V35 RECOMMENDATION UI ============ */
 
+/* Header — left aligned, matching anime-page section-heading spacing */
 .recommendations-header {
-  text-align: center;
-  margin-bottom: 48px;
+  padding: 0px 0 20px;
 }
 
 .recommendations-header .eyebrow {
-  color: var(--accent, #ff7849);
-  font-size: 13px;
-  letter-spacing: 0.12em;
+  color: var(--accent, #d8ff55);
   text-transform: uppercase;
-  margin: 0 0 8px;
-}
-
-.recommendations-header h1 {
-  font-size: clamp(28px, 5vw, 42px);
-  margin: 0 0 12px;
-  background: linear-gradient(120deg, #fff 0%, #b8b8b8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.recommendations-header .lead {
-  color: var(--muted, #8a8a8a);
-  max-width: 720px;
-  margin: 0 auto;
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-.recommendations-loading {
-  margin: 32px 0;
-}
-
-.anime-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 20px;
-}
-
-/* Skeleton loading */
-.skeleton-card {
-  background: var(--card-bg, #15151a);
-  border: 1px solid var(--line, #25252b);
-  border-radius: 12px;
-  aspect-ratio: 3 / 4;
-  animation: pulse 1.5s infinite ease-in-out;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 0.8; }
-}
-
-/* Debug panel */
-.debug-panel {
-  margin-top: 48px;
-  padding: 20px;
-  background: var(--card-bg, #15151a);
-  border: 1px solid var(--line, #25252b);
-  border-radius: 12px;
-}
-
-.debug-toggle {
-  background: var(--accent, #ff7849);
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.debug-content {
-  margin-top: 20px;
-  font-size: 13px;
-}
-
-.debug-content h3 {
-  margin: 16px 0 8px;
-  font-size: 14px;
-  color: var(--accent, #ff7849);
-}
-
-.debug-content ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.debug-content .trait-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 6px 0 12px;
-}
-
-.debug-content .trait-tags li {
+  letter-spacing: .14em;
   font-size: 11px;
-  padding: 2px 7px;
-  background: var(--tag-bg, rgba(255, 255, 255, 0.06));
-  border-radius: 4px;
-  color: var(--text-secondary, #b8b8b8);
-}
-
-.trait-profile-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-}
-
-.trait-profile-entry {
-  display: grid;
-  grid-template-columns: 140px 1fr 50px;
-  gap: 12px;
-  align-items: center;
-  font-size: 12px;
-}
-
-.trait-profile-name {
-  color: var(--text, #fff);
-}
-
-.trait-profile-pct {
-  text-align: right;
-  color: var(--accent, #ff7849);
   font-weight: 600;
-}
-
-.trait-bar-wrap {
-  background: var(--line, #25252b);
-  border-radius: 4px;
-  overflow: hidden;
-  height: 8px;
-}
-
-.trait-bar-fill {
-  background: var(--accent, #ff7849);
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.3s ease;
-}
-
-/* State panels */
-.state-panel {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--text, #fff);
-}
-
-.state-panel h2 {
-  margin: 8px 0;
-}
-
-.state-panel .lead {
-  color: var(--muted, #8a8a8a);
-  margin-bottom: 20px;
-}
-
-.state-panel .primary-action {
-  display: inline-block;
-  background: var(--accent, #ff7849);
-  color: #fff;
-  text-decoration: none;
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-weight: 600;
-}
-
-@media (max-width: 700px) {
-  .anime-grid {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 12px;
-  }
-  .trait-profile-entry {
-    grid-template-columns: 100px 1fr 40px;
-  }
-}
-
-/* Empty state debug */
-.empty-debug {
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.core-anime-debug {
-  margin: 32px 0;
-}
-
-.core-anime-debug h3 {
-  font-size: 16px;
-  margin: 0 0 16px;
-  color: var(--accent, #ff7849);
-}
-
-.core-anime-item {
-  background: var(--card-bg, #15151a);
-  border: 1px solid var(--line, #25252b);
-  border-radius: 10px;
-  padding: 16px;
   margin-bottom: 12px;
 }
 
-.core-anime-item strong {
-  font-size: 15px;
+.recommendations-header h1 {
+  margin: 10px 0 0;
+  font: 600 clamp(42px, 6vw, 72px)/1 'Space Grotesk', sans-serif;
+  letter-spacing: -.06em;
+}
+
+.recommendations-header .lead {
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 17px;
+  max-width: 640px;
+}
+
+/* Category sections */
+.v35-recommendations {
+  padding-bottom: 64px;
+}
+
+.v35-category {
+  margin: 40px 0;
+}
+
+.v35-category-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.v35-category-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.v35-category-count {
+  font-size: 12px;
+  color: var(--muted, #9b98a8);
+  background: var(--bg-secondary, #1a1a2e);
+  padding: 2px 10px;
+  border-radius: 12px;
+}
+
+/* Category accent colors */
+.v35-category-perfect_match .v35-category-header h2 { color: #fbbf24; }
+.v35-category-hidden_gem .v35-category-header h2 { color: #34d399; }
+.v35-category-unexpected_match .v35-category-header h2 { color: #f472b6; }
+.v35-category-fresh_pick .v35-category-header h2 { color: #60a5fa; }
+.v35-category-genre_expansion .v35-category-header h2 { color: #a78bfa; }
+.v35-category-romance_pick .v35-category-header h2 { color: #fb7185; }
+
+/* Recommendation card */
+.anime-card {
   display: block;
-  margin-bottom: 6px;
+  color: inherit;
+  text-decoration: none;
+  background: var(--bg-secondary, #15151e);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
-.core-anime-item .anime-meta {
-  font-size: 12px;
-  color: var(--muted, #8a8a8a);
+.anime-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+}
+
+.anime-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+}
+
+.anime-card-body {
+  padding: 14px;
+}
+
+.anime-category-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent, #d8ff55);
   margin: 0 0 4px;
+  font-weight: 600;
 }
 
-.core-anime-item .trait-count {
+.anime-card h2 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 5px 0 8px;
+  line-height: 1.15;
+  letter-spacing: -.02em;
+}
+
+.anime-meta {
   font-size: 12px;
-  color: var(--accent, #ff7849);
-  margin: 0 0 8px;
+  color: var(--muted);
+  margin: 0;
 }
 
-.user-profile-debug {
-  margin: 32px 0;
-}
-
-.user-profile-debug h3 {
-  font-size: 16px;
-  margin: 0 0 16px;
-  color: var(--accent, #ff7849);
-}
-
-.debug-note {
-  margin-top: 32px;
-  padding: 16px;
-  background: rgba(255, 120, 73, 0.08);
-  border: 1px solid rgba(255, 120, 73, 0.2);
-  border-radius: 8px;
+.anime-match-badge {
   font-size: 13px;
-  color: var(--muted, #8a8a8a);
-}
-
-.debug-note p {
+  font-weight: 700;
+  color: var(--accent, #d8ff55);
   margin: 4px 0;
 }
 
-/* Recommendation-specific card additions */
-.anime-match-badge {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  background: rgba(255, 120, 73, 0.15);
-  color: var(--accent, #ff7849);
-  border-radius: 4px;
-  margin: 4px 0 8px;
-}
-
 .anime-reason {
-  font-size: 13px;
-  color: var(--text-secondary, #b8b8b8);
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0 0;
   line-height: 1.4;
-  margin: 0 0 10px;
 }
 
+/* Trait tags */
 .anime-trait-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 5px;
+  margin-top: 8px;
 }
 
 .trait-tag {
-  display: inline-block;
-  font-size: 11px;
+  font-size: 10px;
   padding: 2px 7px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--line, #25252b);
-  border-radius: 4px;
-  color: var(--text-secondary, #b8b8b8);
+  background: rgba(216, 255, 85, 0.08);
+  border: 1px solid rgba(216, 255, 85, 0.15);
+  border-radius: 10px;
+  color: var(--accent, #d8ff55);
+}
+
+/* Skeleton loading */
+.recommendations-loading .anime-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.skeleton-card {
+  background: #15151e;
+  border-radius: 10px;
+  aspect-ratio: 2 / 3;
+}
+
+/* Anime grid — matching anime.css exactly */
+.anime-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+/* State panel */
+.state-panel {
+  border: 1px solid var(--line);
+  padding: 48px;
+  color: var(--muted);
+}
+
+.state-panel h2 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.state-panel p {
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* ============ RESPONSIVE — matching anime.css ============ */
+@media (max-width: 800px) {
+  .anime-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .anime-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .anime-card-body {
+    padding: 11px;
+  }
+
+  .anime-card h2 {
+    font-size: 15px;
+  }
+
+  .v35-category-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .recommendations-header {
+    padding-top: 32px;
+  }
+}
+
+@media (max-width: 420px) {
+  .anime-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .anime-card-body {
+    padding: 10px;
+  }
+
+  .anime-card h2 {
+    font-size: 14px;
+  }
 }

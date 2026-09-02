@@ -5,7 +5,170 @@ import { getStarterAnime } from '../services/animeService.ts'
 import { getAnimeDNA } from '../services/dnaService.ts'
 import type { Anime } from '../types/anime.ts'
 import type { AnimeDNA } from '../services/animeDNA.ts'
-import '../pages/auth.css'
-import '../pages/dna.css'
 
-export default function OnboardingManager(){const {user,profile,onboardingState,refreshUserState}=useAuth();const [username,setUsername]=useState('');const [anime,setAnime]=useState<Anime[]>([]);const [selected,setSelected]=useState<string[]>([]);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const [dna,setDna]=useState<AnimeDNA|null>(null);const userId=user?.id;useEffect(()=>{if(onboardingState==='needs_favorites'&&!anime.length)getStarterAnime().then(setAnime).catch(()=>setError('We could not load the starter anime.'))},[onboardingState,anime.length]);if(!userId||onboardingState==='signed_out'||onboardingState==='complete'||onboardingState==='loading')return null;async function saveUsername(e:React.FormEvent){e.preventDefault();const value=username.trim().toLowerCase();if(!/^[a-z0-9_]{3,24}$/.test(value)){setError('Use 3–24 letters, numbers, or underscores.');return}setBusy(true);setError('');try{await createProfile(userId!,value);await refreshUserState()}catch(err){const existing=await getProfile(userId!).catch(()=>null);if(existing?.id===userId){await refreshUserState()}else{const message=err instanceof Error?err.message.toLowerCase():'';setError(message.includes('profiles_username')||message.includes('username')||message.includes('duplicate')||message.includes('unique')?'That username is already taken.':'We could not save your username.')}}finally{setBusy(false)}}function toggle(id:string){if(selected.includes(id)){setSelected(selected.filter((x)=>x!==id));setError('')}else if(selected.length===3)setError('Choose 3 favorites. Deselect one to choose another.');else setSelected([...selected,id])}async function saveFavorites(){if(selected.length!==3)return;setBusy(true);setError('');try{const client=requireSupabase();const {error:removeError}=await client.from('user_favorite_anime').delete().eq('user_id',userId!);if(removeError)throw removeError;const {error:saveError}=await client.from('user_favorite_anime').insert(selected.map((anime_id)=>({user_id:userId!,anime_id})));if(saveError)throw saveError;const result=await getAnimeDNA(userId!);await requireSupabase().from('public_anime_dna').upsert({username: profile?.username ?? '', archetype_name: result.archetype.name, archetype_icon: result.archetype.icon, description: result.description, traits: result.traits, favorite_titles: result.favoriteAnime.map((anime)=>anime.title)},{onConflict:'username'});await updateProfile(userId!,{onboarding_completed:true});setDna(result);await refreshUserState()}catch{setError('We could not save your favorites. Onboarding was not completed.')}finally{setBusy(false)}}if(dna)return <div className="onboarding-overlay"><div className="onboarding-modal dna-reveal"><p className="eyebrow">Your Anime DNA</p><h2>{dna.archetype.icon} {dna.archetype.name}</h2><p>{dna.description}</p>{dna.traits.slice(0,4).map((t)=><div className="dna-trait" key={t.name}><span>{t.icon} {t.name}</span><b>{t.score}%</b></div>)}<button className="primary-action" onClick={()=>setDna(null)}>Explore SAIKO</button></div></div>;return <div className="onboarding-overlay" role="dialog" aria-modal="true"><div className="onboarding-modal">{onboardingState==='needs_username'?<><p className="eyebrow">Welcome to SAIKO</p><h2>Choose your SAIKO username</h2><p>This is how other anime fans will find you.</p><form onSubmit={saveUsername}><label htmlFor="saiko-username">Username</label><input id="saiko-username" autoFocus value={username} onChange={(e)=>setUsername(e.target.value)} placeholder="@username"/><button className="primary-action" disabled={busy}>Continue</button></form></>:<><p className="eyebrow">Personalize SAIKO</p><h2>Choose your all-time favorites</h2><p>Pick exactly 3 anime that define your taste.</p><div className="favorite-grid">{!anime.length?Array.from({length:6},(_,index)=><div className="skeleton-card" key={index}/>):anime.map((item)=><button className={`favorite-card ${selected.includes(item.id)?'selected':''}`} aria-pressed={selected.includes(item.id)} onClick={()=>toggle(item.id)} key={item.id}><img src={item.imageUrl} alt={`${item.title} cover`}/><span>{item.title}</span>{selected.includes(item.id)&&<b>✓</b>}</button>)}</div><p className="selection-count">{selected.length}/3 selected</p><button className="primary-action" disabled={selected.length!==3||busy} onClick={saveFavorites}>Decode my Anime DNA</button></>}{error&&<p className="auth-error" role="alert">{error}</p>}</div></div>}
+export default function OnboardingManager() {
+  const { user, profile, onboardingState, refreshUserState } = useAuth()
+  const [username, setUsername] = useState('')
+  const [anime, setAnime] = useState<Anime[]>([])
+  const [selected, setSelected] = useState<string[]>([])
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [dna, setDna] = useState<AnimeDNA | null>(null)
+  const userId = user?.id
+
+  useEffect(() => {
+    if (onboardingState === 'needs_favorites' && !anime.length)
+      getStarterAnime()
+        .then(setAnime)
+        .catch(() => setError('We could not load the starter anime.'))
+  }, [onboardingState, anime.length])
+
+  if (!userId || onboardingState === 'signed_out' || onboardingState === 'complete' || onboardingState === 'loading') return null
+
+  async function saveUsername(e: React.FormEvent) {
+    e.preventDefault()
+    const value = username.trim().toLowerCase()
+    if (!/^[a-z0-9_]{3,24}$/.test(value)) {
+      setError('Use 3–24 letters, numbers, or underscores.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      await createProfile(userId!, value)
+      await refreshUserState()
+    } catch (err) {
+      const existing = await getProfile(userId!).catch(() => null)
+      if (existing?.id === userId) {
+        await refreshUserState()
+      } else {
+        const message = err instanceof Error ? err.message.toLowerCase() : ''
+        setError(message.includes('profiles_username') || message.includes('username') || message.includes('duplicate') || message.includes('unique') ? 'That username is already taken.' : 'We could not save your username.')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function toggle(id: string) {
+    if (selected.includes(id)) {
+      setSelected(selected.filter((x) => x !== id))
+      setError('')
+    } else if (selected.length === 3) setError('Choose 3 favorites. Deselect one to choose another.')
+    else setSelected([...selected, id])
+  }
+
+  async function saveFavorites() {
+    if (selected.length !== 3) return
+    setBusy(true)
+    setError('')
+    try {
+      const client = requireSupabase()
+      const { error: removeError } = await client.from('user_favorite_anime').delete().eq('user_id', userId!)
+      if (removeError) throw removeError
+      const { error: saveError } = await client.from('user_favorite_anime').insert(selected.map((anime_id) => ({ user_id: userId!, anime_id })))
+      if (saveError) throw saveError
+      
+      // Get the calculated DNA
+      const result = await getAnimeDNA(userId!)
+      
+      // Save to public_anime_dna for the public page
+      await requireSupabase().from('public_anime_dna').upsert({
+        username: profile?.username ?? '',
+        archetype_name: result.name,
+        archetype_icon: result.id,
+        description: result.description,
+        traits: result.traits,
+        favorite_titles: result.favoriteAnime.map((anime) => anime.title),
+      }, { onConflict: 'username' })
+      
+      await updateProfile(userId!, { onboarding_completed: true })
+      setDna(result)
+      await refreshUserState()
+    } catch {
+      setError('We could not save your favorites. Onboarding was not completed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (dna)
+    return (
+      <div className="onboarding-overlay">
+        <div className="onboarding-modal dna-reveal">
+          <p className="eyebrow">Your Anime DNA</p>
+          <h2>{dna.name}</h2>
+          <p className="dna-tagline">{dna.tagline}</p>
+          <p className="dna-description">{dna.description}</p>
+          <h3>Your traits</h3>
+          {dna.traits.map((t) => (
+            <div className="dna-trait" key={t.name}>
+              <span>
+                {t.icon} {t.name}
+              </span>
+              <b>{t.score}%</b>
+            </div>
+          ))}
+          <h3>Your DNA was forged from:</h3>
+          <div className="dna-favorites">
+            {dna.favoriteAnime.map((a) => (
+              <span key={a.id}>{a.title}</span>
+            ))}
+          </div>
+          <button className="primary-action" onClick={() => setDna(null)}>Explore SAIKO</button>
+        </div>
+      </div>
+    )
+
+  return (
+    <div className="onboarding-overlay" role="dialog" aria-modal="true">
+      <div className="onboarding-modal">
+        {onboardingState === 'needs_username' ? (
+          <>
+            <p className="eyebrow">Welcome to SAIKO</p>
+            <h2>Choose your SAIKO username</h2>
+            <p>This is how other anime fans will find you.</p>
+            <form onSubmit={saveUsername}>
+              <label htmlFor="saiko-username">Username</label>
+              <input
+                id="saiko-username"
+                autoFocus
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="@username"
+              />
+              <button className="primary-action" disabled={busy}>Continue</button>
+            </form>
+          </>
+        ) : (
+          <>
+            <p className="eyebrow">Personalize SAIKO</p>
+            <h2>Choose your all-time favorites</h2>
+            <p>Pick exactly 3 anime that define your taste.</p>
+            <div className="favorite-grid">
+              {!anime.length
+                ? Array.from({ length: 6 }, (_, index) => <div className="skeleton-card" key={index} />)
+                : anime.map((item) => (
+                    <button
+                      className={`favorite-card ${selected.includes(item.id) ? 'selected' : ''}`}
+                      aria-pressed={selected.includes(item.id)}
+                      onClick={() => toggle(item.id)}
+                      key={item.id}
+                    >
+                      <img src={item.imageUrl} alt={`${item.title} cover`} />
+                      <span>{item.title}</span>
+                      {selected.includes(item.id) && <b>✓</b>}
+                    </button>
+                  ))}
+            </div>
+            <p className="selection-count">{selected.length}/3 selected</p>
+            <button className="primary-action" disabled={selected.length !== 3 || busy} onClick={saveFavorites}>
+              Decode my Anime DNA
+            </button>
+          </>
+        )}
+        {error && <p className="auth-error" role="alert">{error}</p>}
+      </div>
+    </div>
+  )
+}

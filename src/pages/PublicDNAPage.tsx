@@ -1,6 +1,64 @@
-import { useEffect,useState } from 'react'
-import { Link,useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase.ts'
 import './dna.css'
-type PublicDNA = { username: string; archetype_icon: string; archetype_name: string; description: string; traits: Array<{ name: string; score: number; icon: string }> }
-export default function PublicDNAPage(){const {username}=useParams();const [data,setData]=useState<PublicDNA|null>(null);useEffect(()=>{if(supabase&&username)supabase.from('public_anime_dna').select('*').eq('username',username).maybeSingle().then(({data})=>setData(data as PublicDNA|null))},[username]);if(!data)return <section className="dna-page"><h1>Anime DNA not found</h1><Link className="primary-action" to="/auth?mode=signup">Discover yours</Link></section>;return <section className="dna-page"><p className="eyebrow">SAIKO</p><h1>{data.username}'s Anime DNA</h1><h2>{data.archetype_icon} {data.archetype_name}</h2><p className="dna-description">{data.description}</p>{data.traits.map((t)=><div className="dna-trait" key={t.name}><span>{t.icon} {t.name}</span><b>{t.score}%</b></div>)}<Link className="primary-action" to="/auth?mode=signup">Discover your Anime DNA</Link></section>}
+
+type PublicDNA = {
+  username: string
+  archetype_name: string
+  archetype_icon: string
+  description: string
+  traits: Array<{ name: string; score: number; icon: string }>
+  favorite_titles: string[]
+}
+
+export default function PublicDNAPage() {
+  const { username } = useParams()
+  const [data, setData] = useState<PublicDNA | null>(null)
+
+  useEffect(() => {
+    if (supabase && username)
+      supabase
+        .from('public_anime_dna')
+        .select('*')
+        .eq('username', username)
+        .maybeSingle()
+        .then(({ data }) => setData(data as PublicDNA | null))
+  }, [username])
+
+  if (!data)
+    return (
+      <section className="dna-page">
+        <h1>Anime DNA not found</h1>
+        <Link className="primary-action" to="/auth?mode=signup">Discover yours</Link>
+      </section>
+    )
+
+  return (
+    <section className="dna-page">
+      <p className="eyebrow">SAIKO</p>
+      <h1>{data.username}'s Anime DNA</h1>
+      <h2>{data.archetype_name}</h2>
+      <p className="dna-description">{data.description}</p>
+
+      <h2>Your traits</h2>
+      {data.traits.map((t) => (
+        <div className="dna-trait" key={t.name}>
+          <span>
+            {t.icon} {t.name}
+          </span>
+          <b>{t.score}%</b>
+        </div>
+      ))}
+
+      <h2>DNA was forged from:</h2>
+      <div className="dna-favorites">
+        {data.favorite_titles.map((title, i) => (
+          <span key={i}>{title}</span>
+        ))}
+      </div>
+
+      <Link className="primary-action" to="/auth?mode=signup">Discover your Anime DNA</Link>
+    </section>
+  )
+}
