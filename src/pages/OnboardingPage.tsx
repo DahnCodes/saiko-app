@@ -1,9 +1,129 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext.tsx'
-import { createProfile, updateProfile } from '../services/authService.ts'
-import { requireSupabase } from '../services/authService.ts'
-import { getStarterAnime } from '../services/animeService.ts'
-import type { Anime } from '../types/anime.ts'
-import './auth.css'
-export default function OnboardingPage() { const { user, profile } = useAuth(); const navigate = useNavigate(); const [anime, setAnime] = useState<Anime[]>([]); const [selected, setSelected] = useState<string[]>([]); const [username, setUsername] = useState(profile?.username ?? ''); const [error, setError] = useState(''); const [saving, setSaving] = useState(false); useEffect(() => { getStarterAnime().then(setAnime).catch(() => setError('We could not load the starter picks.')) }, []); function toggle(id: string) { setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length < 3 ? [...current, id] : current) } async function complete() { if (!user || selected.length !== 3 || (profile ? !profile.username : !username.trim())) return; setSaving(true); setError(''); try { if (!profile) await createProfile(user.id, username.trim()); const client = requireSupabase(); const rows = selected.map((animeId) => ({ user_id: user.id, anime_id: animeId })); const { error: favoriteError } = await client.from('user_favorite_anime').upsert(rows, { onConflict: 'user_id,anime_id' }); if (favoriteError) throw favoriteError; await updateProfile(user.id, { onboarding_completed: true }); navigate('/') } catch (e) { setError(e instanceof Error ? e.message : 'Could not save your preferences.') } finally { setSaving(false) } } return <section className="onboarding-page"><p className="eyebrow">Personalize SAIKO</p>{!profile && <div className="username-step"><h1>Choose your username</h1><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="your_username" minLength={3} maxLength={24} /></div>}<h1>Pick 3 anime that define your taste.</h1><p className="onboarding-copy">Your choices help us find better recommendations for you.</p><div className="favorite-grid">{anime.map((item) => <button className={`favorite-card ${selected.includes(item.id) ? 'selected' : ''}`} key={item.id} onClick={() => toggle(item.id)} aria-pressed={selected.includes(item.id)}><img src={item.imageUrl} alt="" /><span>{item.title}</span>{selected.includes(item.id) && <b aria-hidden="true">✓</b>}</button>)}</div><p className="selection-count">{selected.length} / 3 selected{selected.length === 3 && ' · Ready'}</p>{selected.length === 3 && !profile && !username.trim() && <p className="auth-error">Choose a username to continue.</p>}{selected.length === 3 && <button className="primary-action" onClick={complete} disabled={saving || (!profile && !username.trim())}>{saving ? 'Saving...' : 'Continue'}</button>}{error && <p className="auth-error" role="alert">{error}</p>}</section> }
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext.tsx";
+import { createProfile, updateProfile } from "../services/authService.ts";
+import { requireSupabase } from "../services/authService.ts";
+import { useStarterAnime } from "../hooks/useStarterAnime.ts";
+import "./auth.css";
+export default function OnboardingPage() {
+  const { user, profile } = useAuth();
+  const navigate = useNavigate();
+  const {
+    anime,
+    status: animeStatus,
+    message: animeMessage,
+  } = useStarterAnime();
+  const [selected, setSelected] = useState<string[]>([]);
+  const [username, setUsername] = useState(profile?.username ?? "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  function toggle(id: string) {
+    setSelected((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : current.length < 3
+          ? [...current, id]
+          : current,
+    );
+  }
+  async function complete() {
+    if (
+      !user ||
+      selected.length !== 3 ||
+      (profile ? !profile.username : !username.trim())
+    )
+      return;
+    setSaving(true);
+    setError("");
+    try {
+      if (!profile) await createProfile(user.id, username.trim());
+      const client = requireSupabase();
+      const rows = selected.map((animeId) => ({
+        user_id: user.id,
+        anime_id: animeId,
+      }));
+      const { error: favoriteError } = await client
+        .from("user_favorite_anime")
+        .upsert(rows, { onConflict: "user_id,anime_id" });
+      if (favoriteError) throw favoriteError;
+      await updateProfile(user.id, { onboarding_completed: true });
+      navigate("/");
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not save your preferences.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <section className="onboarding-page">
+      <p className="eyebrow">Personalize SAIKO</p>
+      {user && !profile && (
+        <div className="username-step">
+          <h1>Choose your username</h1>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="your_username"
+            minLength={3}
+            maxLength={24}
+          />
+        </div>
+      )}
+      <h1>Pick 3 anime that define your taste.</h1>
+      <p className="onboarding-copy">
+        Your choices help us find better recommendations for you.
+      </p>
+      {animeStatus === "loading" && (
+        <p role="status">Loading starter anime...</p>
+      )}
+      {animeMessage && <p role="status">{animeMessage}</p>}
+      <div className="favorite-grid">
+        {anime.map((item) => (
+          <button
+            className={`favorite-card ${selected.includes(item.id) ? "selected" : ""}`}
+            key={item.id}
+            onClick={() => toggle(item.id)}
+            aria-pressed={selected.includes(item.id)}
+          >
+            <img
+              src={item.imageUrl}
+              alt=""
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+            <span>{item.title}</span>
+            {selected.includes(item.id) && <b aria-hidden="true">✓</b>}
+          </button>
+        ))}
+      </div>
+      <p className="selection-count">
+        {selected.length} / 3 selected{selected.length === 3 && " · Ready"}
+      </p>
+      {user && selected.length === 3 && !profile && !username.trim() && (
+        <p className="auth-error">Choose a username to continue.</p>
+      )}
+      {!user && (
+        <button className="primary-action" onClick={() => navigate("/auth")}>
+          Sign in to save your picks
+        </button>
+      )}
+      {user && selected.length === 3 && (
+        <button
+          className="primary-action"
+          onClick={complete}
+          disabled={saving || (!profile && !username.trim())}
+        >
+          {saving ? "Saving..." : "Continue"}
+        </button>
+      )}
+      {error && (
+        <p className="auth-error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}

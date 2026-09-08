@@ -6,6 +6,7 @@ import './index.css'
 import AppShell from './App.tsx'
 // PagePlaceholder removed; using dedicated RecommendationsPage instead
 import AuthPage from './pages/AuthPage.tsx'
+import OnboardingPage from './pages/OnboardingPage.tsx'
 import ProfilePage from './pages/ProfilePage.tsx'
 import AnimeDNAPage from './pages/AnimeDNAPage.tsx'
 import PublicDNAPage from './pages/PublicDNAPage.tsx'
@@ -21,7 +22,7 @@ import TrailersPage from './pages/TrailersPage.tsx'
 import RecommendationsPage from './pages/RecommendationsPage.tsx'
 
 function Protected({ children }: { children: ReactNode }) { const { loading, profileLoading, isAuthenticated, onboardingState } = useAuth(); if (loading || profileLoading || onboardingState === 'loading') return <div className="state-panel">Loading your account...</div>; if (!isAuthenticated) return <Navigate to="/auth" replace />; if (onboardingState !== 'complete') return <Navigate to="/" replace />; return children }
-function OnboardingRoute() { const { loading, profileLoading, isAuthenticated } = useAuth(); if (loading || profileLoading) return <div className="state-panel">Preparing your SAIKO setup...</div>; if (!isAuthenticated) return <Navigate to="/auth" replace />; return <Navigate to="/" replace /> }
+function OnboardingRoute() { const { isAuthenticated } = useAuth(); return isAuthenticated ? <Navigate to="/" replace /> : <OnboardingPage /> }
 createRoot(document.getElementById('root')!).render(<StrictMode><AuthProvider><BrowserRouter><Routes><Route element={<AppShell />}>
   <Route path="/" element={<HomePage />} />
   <Route path="/anime" element={<AnimePage />} />

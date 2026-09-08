@@ -1,27 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../context/AuthContext.tsx'
 import { createProfile, getProfile, requireSupabase, updateProfile } from '../services/authService.ts'
-import { getStarterAnime } from '../services/animeService.ts'
+import { useStarterAnime } from '../hooks/useStarterAnime.ts'
 import { getAnimeDNA } from '../services/dnaService.ts'
-import type { Anime } from '../types/anime.ts'
 import type { AnimeDNA } from '../services/animeDNA.ts'
 
 export default function OnboardingManager() {
   const { user, profile, onboardingState, refreshUserState } = useAuth()
   const [username, setUsername] = useState('')
-  const [anime, setAnime] = useState<Anime[]>([])
+  const { anime, status: animeStatus, message: animeMessage } = useStarterAnime(onboardingState === 'needs_favorites')
   const [selected, setSelected] = useState<string[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [dna, setDna] = useState<AnimeDNA | null>(null)
   const userId = user?.id
-
-  useEffect(() => {
-    if (onboardingState === 'needs_favorites' && !anime.length)
-      getStarterAnime()
-        .then(setAnime)
-        .catch(() => setError('We could not load the starter anime.'))
-  }, [onboardingState, anime.length])
 
   if (!userId || onboardingState === 'signed_out' || onboardingState === 'complete' || onboardingState === 'loading') return null
 
@@ -146,7 +138,7 @@ export default function OnboardingManager() {
             <h2>Choose your all-time favorites</h2>
             <p>Pick exactly 3 anime that define your taste.</p>
             <div className="favorite-grid">
-              {!anime.length
+              {animeStatus === 'loading'
                 ? Array.from({ length: 6 }, (_, index) => <div className="skeleton-card" key={index} />)
                 : anime.map((item) => (
                     <button
@@ -155,12 +147,13 @@ export default function OnboardingManager() {
                       onClick={() => toggle(item.id)}
                       key={item.id}
                     >
-                      <img src={item.imageUrl} alt={`${item.title} cover`} />
+                      <img src={item.imageUrl} alt={`${item.title} cover`} onError={e => { e.currentTarget.style.display = 'none' }} />
                       <span>{item.title}</span>
                       {selected.includes(item.id) && <b>✓</b>}
                     </button>
                   ))}
             </div>
+            {animeMessage && <p role="status">{animeMessage}</p>}
             <p className="selection-count">{selected.length}/3 selected</p>
             <button className="primary-action" disabled={selected.length !== 3 || busy} onClick={saveFavorites}>
               Decode my Anime DNA

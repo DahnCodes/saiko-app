@@ -4,6 +4,13 @@
 # working directory name when running `supabase init`.
 project_id = "anime-news-app"
 
+# Public catalog reads must work without a user session.
+[functions.search-anime]
+verify_jwt = false
+
+[functions.get-starter-anime]
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.
