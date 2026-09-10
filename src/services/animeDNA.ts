@@ -1,4 +1,5 @@
 import type { Anime } from '../types/anime.ts'
+import type { UserTasteProfile } from './tasteProfile.ts'
 
 export type AnimeDNATrait = { name: string; score: number; icon: string }
 
@@ -11,6 +12,7 @@ export type AnimeDNA = {
   favoriteAnime: Anime[];
   version: number;
   generatedAt: string;
+  tasteProfile?: UserTasteProfile;
 }
 
 // Canonical anilist IDs for the 6 starter anime.

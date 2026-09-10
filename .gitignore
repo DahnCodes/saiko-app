@@ -24,9 +24,23 @@ dist-ssr
 *.sw?
 
 
-#env
+# Environment files (only the blank template is public)
 .env
-.env.example
+.env.*
+!.env.example
+
+# Supabase CLI state and local artifacts
+supabase/.temp/
+supabase/.branches/
+tmp-test/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+*.pem
+*.key
+*.p12
+*.pfx
 
 #docs
 anime-loading-incident.md

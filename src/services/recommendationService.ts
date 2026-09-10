@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase.ts'
 import type { Anime } from '../types/anime.ts'
 import { cleanText } from '../lib/text.ts'
 import { getTraitBasedRecommendations } from './recommendations/engine/getTraitBasedRecommendations.ts'
+import { getV35Recommendations } from './recommendations/v35/engine.ts'
 
 type AnimeRow = {
   id: string; anilist_id: number; mal_id: number | null; title: string;
@@ -60,8 +61,10 @@ export async function getPersonalizedRecommendations(
 ): Promise<PersonalizedRecommendation[]> {
   if (!supabase) throw new Error('Recommendation service is not configured')
 
-  // Primary: use SAIKO trait-based engine
+  // Canonical profile pipeline (Core 3, additional anime, characters).
   try {
+    const canonicalRecs = (await getV35Recommendations(userId)).slice(0, limit)
+    if (canonicalRecs.length > 0) return canonicalRecs.map((rec): PersonalizedRecommendation => ({ anime: rec.anime, score: rec.finalScore, reason: rec.reason, matchPercent: Math.round(rec.finalScore), topMatchingTraits: rec.matchedTraits.map(trait => ({ trait, label: trait })) }))
     const traitRecs = await getTraitBasedRecommendations(userId, { limit })
 
     if (traitRecs.length > 0) {
@@ -86,13 +89,15 @@ export async function getPersonalizedRecommendations(
 
   if (favoriteError) throw favoriteError
 
+  const { data: feedback } = await supabase.from('user_anime_feedback').select('anime_id').eq('user_id', userId).eq('feedback_type', 'not_for_me')
+
   const favoriteRows = (favorites ?? [])
     .map((x) => (Array.isArray(x.anime) ? x.anime[0] : x.anime))
     .filter(Boolean) as AnimeRow[]
 
   if (!favoriteRows.length) return []
 
-  const excluded = new Set(favoriteRows.map((x) => x.id))
+  const excluded = new Set([...favoriteRows.map((x) => x.id), ...(feedback ?? []).map(row => String((row as { anime_id: string }).anime_id))])
   const genreWeights = new Map<string, number>()
   favoriteRows.forEach((anime) =>
     (anime.genres ?? []).forEach((genre) =>

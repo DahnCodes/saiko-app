@@ -6,6 +6,11 @@ import { getAnimeDNA } from '../services/dnaService.ts'
 import type { AnimeDNA } from '../services/animeDNA.ts'
 
 export default function OnboardingManager() {
+  const { user } = useAuth()
+  return <OnboardingContent key={user?.id ?? 'signed-out'} />
+}
+
+function OnboardingContent() {
   const { user, profile, onboardingState, refreshUserState } = useAuth()
   const [username, setUsername] = useState('')
   const { anime, status: animeStatus, message: animeMessage } = useStarterAnime(onboardingState === 'needs_favorites')
@@ -15,7 +20,7 @@ export default function OnboardingManager() {
   const [dna, setDna] = useState<AnimeDNA | null>(null)
   const userId = user?.id
 
-  if (!userId || onboardingState === 'signed_out' || onboardingState === 'complete' || onboardingState === 'loading') return null
+  if (!userId || onboardingState === 'signed_out' || (onboardingState === 'complete' && !dna) || onboardingState === 'loading') return null
 
   async function saveUsername(e: React.FormEvent) {
     e.preventDefault()
@@ -56,16 +61,14 @@ export default function OnboardingManager() {
     setError('')
     try {
       const client = requireSupabase()
-      const { error: removeError } = await client.from('user_favorite_anime').delete().eq('user_id', userId!)
-      if (removeError) throw removeError
-      const { error: saveError } = await client.from('user_favorite_anime').insert(selected.map((anime_id) => ({ user_id: userId!, anime_id })))
+      const { error: saveError } = await client.rpc('save_my_favorites', { anime_ids: selected })
       if (saveError) throw saveError
       
       // Get the calculated DNA
       const result = await getAnimeDNA(userId!)
       
       // Save to public_anime_dna for the public page
-      await requireSupabase().from('public_anime_dna').upsert({
+      const { error: publishError } = await client.from('public_anime_dna').upsert({
         username: profile?.username ?? '',
         archetype_name: result.name,
         archetype_icon: result.id,
@@ -74,6 +77,7 @@ export default function OnboardingManager() {
         favorite_titles: result.favoriteAnime.map((anime) => anime.title),
       }, { onConflict: 'username' })
       
+      if (publishError) throw publishError
       await updateProfile(userId!, { onboarding_completed: true })
       setDna(result)
       await refreshUserState()

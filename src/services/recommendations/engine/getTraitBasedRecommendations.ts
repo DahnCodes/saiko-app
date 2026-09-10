@@ -1,5 +1,5 @@
 import { supabase } from '../../../lib/supabase';
-import { getAnimeById, getStarterAnimeById, mapAnime } from '../../animeService';
+import { getAnimeById, getStarterAnimeById, mapAnime, type AnimeRow } from '../../animeService';
 import { getOrExtractTraitProfiles, getOrExtractTraitProfile } from '../traits/traitCache';
 import { buildUserTraitProfile } from '../taste/userTraitProfile';
 import { scoreAnimeAgainstProfile, type CandidateScore } from './scoreAnimeAgainstProfile';
@@ -67,7 +67,7 @@ async function fetchCandidatesLean(limit = 300): Promise<Anime[]> {
   if (error) throw error;
   if (!data?.length) return [];
 
-  return (data as any[]).map(mapAnime);
+  return (data as AnimeRow[]).map(mapAnime);
 }
 
 export async function getTraitBasedRecommendations(
@@ -299,7 +299,6 @@ export async function getTraitBasedRecommendations(
 
   // Round-robin pick: take one from each bucket in order
   const diverselySelected: typeof scored = [];
-  let bucketIndex = 0;
   while (diverselySelected.length < limit) {
     let addedThisRound = 0;
     for (const bucket of sortedBuckets) {
@@ -310,7 +309,6 @@ export async function getTraitBasedRecommendations(
       }
     }
     if (addedThisRound === 0) break; // all buckets empty
-    bucketIndex++;
   }
 
   // If we still have room, fill from the trait-eligible pool (NOT all candidates)

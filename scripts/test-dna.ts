@@ -1,7 +1,7 @@
 // Simple test runner for the DNA system
 // Run with: npx tsx scripts/test-dna.ts
 
-import { calculateAnimeDNA, COMBINATION_TO_DNA, type AnimeDNA } from '../src/services/animeDNA.ts'
+import { calculateAnimeDNA, COMBINATION_TO_DNA } from '../src/services/animeDNA.ts'
 import type { Anime } from '../src/types/anime.ts'
 
 const STARTER_IDS = ['naruto', 'one-piece', 'bleach', 'demon-slayer', 'mha', 'attack-on-titan']
@@ -40,7 +40,7 @@ function combinations<T>(arr: T[], k: number): T[][] {
 function makeAnime(id: string): Anime {
   return {
     id,
-    anilistId: 0,
+    anilistId: ({ naruto: 20, 'one-piece': 21, bleach: 269, 'demon-slayer': 101922, mha: 21459, 'attack-on-titan': 16498 } as Record<string, number>)[id],
     malId: null,
     title: id,
     nativeTitle: null,
@@ -84,13 +84,13 @@ log(`20 valid 3-anime combinations exist (C(6,3) = ${allCombos.length})`, allCom
 
 let mapCount = 0
 for (const combo of allCombos) {
-  const sorted = [...combo].sort((a, b) => a.localeCompare(b)).join('-')
+  const sorted = combo.map(id => makeAnime(id).anilistId).sort((a, b) => a - b).join('-')
   if (COMBINATION_TO_DNA[sorted]) mapCount += 1
 }
 log(`All 20 combinations mapped in COMBINATION_TO_DNA`, mapCount === 20)
 
 for (const combo of allCombos) {
-  const sorted = [...combo].sort((a, b) => a.localeCompare(b)).join('-')
+  const sorted = combo.map(id => makeAnime(id).anilistId).sort((a, b) => a - b).join('-')
   const exists = COMBINATION_TO_DNA[sorted] !== undefined
   log(`Combination "${sorted}" is defined`, exists)
 }

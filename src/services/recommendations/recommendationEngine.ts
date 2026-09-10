@@ -2,9 +2,10 @@ import { supabase } from '../../lib/supabase'
 import type { Anime } from '../../types/anime'
 import type { AnimeRecommendation, RecommendationOptions, RecommendationScore } from './recommendationTypes'
 import { getAnimeDNA } from '../dnaService'
-import { getStarterAnime, getAnimeByAnilistId, mapAnime, getAnimeById } from '../animeService'
+import { getStarterAnime, getAnimeByAnilistId, mapAnime, getAnimeById, type AnimeRow } from '../animeService'
 import * as aniList from '../../services/aniListService'
-import { extractTraits } from './traits'
+import { mapGenresToTraits } from './traits/metadataMapping'
+import { extractTraits, getTraitById } from './traits'
 import { buildTasteMap, scoreCandidateTraits, type TasteMap } from './taste/buildTasteMap'
 
 export const CACHE_TTL_SECONDS = 60 * 60 * 4 // 4 hours
@@ -19,7 +20,7 @@ async function fetchCandidatesBroad(limit = 1000): Promise<Anime[]> {
     .select('*')
     .limit(limit)
   if (error) throw error
-  return ((data ?? []) as any[]).map(mapAnime)
+  return ((data ?? []) as AnimeRow[]).map(mapAnime)
 }
 
 async function fetchCandidatesRecent(limit = 300): Promise<Anime[]> {
@@ -31,7 +32,7 @@ async function fetchCandidatesRecent(limit = 300): Promise<Anime[]> {
     .or(`status.eq.RELEASING,season_year.gte.${currentYear - 1}`)
     .limit(limit)
   if (error) throw error
-  return ((data ?? []) as any[]).map(mapAnime)
+  return ((data ?? []) as AnimeRow[]).map(mapAnime)
 }
 
 function computeRecencyBonus(anime: Anime) {
@@ -68,7 +69,6 @@ function extractAnimeTraits(anime: Anime): string[] {
     })
   } catch {
     // Fallback: map genres directly if trait extraction fails
-    const { mapGenresToTraits } = require('./traits/metadataMapping')
     return mapGenresToTraits(anime.genres ?? [])
   }
 }
@@ -125,7 +125,6 @@ function reasonFromComponents(anime: Anime, significantGenres: string[], matchin
   const parts: string[] = []
   if (significantGenres.length) parts.push(`Matches your interest in ${significantGenres.slice(0, 2).join(' and ')}`)
   else if (matchingTraits?.length) {
-    const { getTraitById } = require('./traits')
     const labels = matchingTraits.slice(0, 2).map((id: string) => getTraitById(id)?.label ?? id)
     if (labels.length) parts.push(`Matches ${labels.join(' and ')}`)
   }
@@ -157,45 +156,50 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
   const dna = await getAnimeDNA(userId)
   const fingerprint = dna.traits.slice(0, 8)
   const fingerprintNames = fingerprint.map((t) => t.name)
-  const fingerprintString = JSON.stringify(fingerprint.map((t) => ({ n: t.name, s: t.score })))
+  const fingerprintString = dna.tasteProfile
+    ? JSON.stringify({ traits: fingerprint.map((t) => ({ n: t.name, s: t.score })), profile: { confidence: dna.tasteProfile.confidence, counts: dna.tasteProfile.sourceCounts, characters: dna.tasteProfile.characterTraits.slice(0, 8).map(t => [t.id, t.score]) } })
+    : JSON.stringify(fingerprint.map((t) => ({ n: t.name, s: t.score })))
 
-  if (inFlightComputations.has(userId)) {
-    return await inFlightComputations.get(userId)!
-  }
+  const computationKey = JSON.stringify([userId, fingerprintString, limit, Boolean(options?.forceRefresh)])
+  const pending = inFlightComputations.get(computationKey)
+  if (pending) return pending
+
+  const work = (async () => {
 
   // Distributed lock
   const lockKey = `recompute:${userId}`
   let lockToken: string | null = null
-  let redisHelpers: any = null
+  let redisHelpers: typeof import('../../lib/redisLock') | null = null
+  let lockContended = false
   try {
-    const hasRedisEnv = (globalThis as any).process?.env?.REDIS_URL || (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_REDIS_URL)
     const isServer = typeof window === 'undefined'
-    if (isServer && hasRedisEnv) {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      redisHelpers = require('../../lib/redisLock')
+    if (isServer && process.env.REDIS_URL) {
+      redisHelpers = await import('../../lib/redisLock')
       lockToken = await redisHelpers.acquireLock(lockKey, 60_000)
+      lockContended = !lockToken
     }
   } catch {
     lockToken = null
     redisHelpers = null
   }
 
-  if (!lockToken) {
+  try {
+  if (!options?.forceRefresh) {
     const start = Date.now()
-    while (Date.now() - start < 5000) {
+    do {
       try {
         const { data: cached } = await supabase.from('user_recommendations').select('recommendations,updated_at,fingerprint').eq('user_id', userId).maybeSingle()
         if (cached && cached.fingerprint === fingerprintString) {
           const updated = new Date(cached.updated_at).getTime()
-          if ((Date.now() - updated) / 1000 < CACHE_TTL_SECONDS) {
-            return cached.recommendations as AnimeRecommendation[]
+          if (Array.isArray(cached.recommendations) && cached.recommendations.length >= limit && (Date.now() - updated) / 1000 < CACHE_TTL_SECONDS) {
+            return (cached.recommendations as AnimeRecommendation[]).slice(0, limit)
           }
         }
       } catch {
         // ignore
       }
-      await new Promise((res) => setTimeout(res, 250))
-    }
+      if (lockContended) await new Promise((res) => setTimeout(res, 250))
+    } while (lockContended && Date.now() - start < 5000)
   }
 
   const computePromise = (async (): Promise<AnimeRecommendation[]> => {
@@ -205,6 +209,7 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
       getStarterAnime(),
     ])
 
+    if (favoritesResp.error) throw favoritesResp.error
     const favoriteRows = (favoritesResp.data ?? []) as { anime_id: string }[]
     const favoriteAnimeObjs = await Promise.all(
       favoriteRows.map((r: { anime_id: string }) => getAnimeById(r.anime_id).catch(() => null))
@@ -226,7 +231,7 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
     for (const trait of fingerprint.slice(0, 5)) {
       try {
         const { data } = await supabase.from('anime').select('*').contains('genres', [trait.name]).limit(200)
-        if (data) genrePools.push(...((data as any[]).map(mapAnime)))
+        if (data) genrePools.push(...((data as AnimeRow[]).map(mapAnime)))
       } catch {
         // ignore per-genre failures
       }
@@ -273,10 +278,10 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
             candidates.push(dbRow)
             continue
           }
-        } catch {}
+        } catch { /* Continue with provider metadata. */ }
 
         try {
-          const upsertObj: any = {
+          const upsertObj = {
             anilist_id: c.id,
             title: c.title?.romaji ?? c.title?.english ?? `Anime ${c.id}`,
             title_romaji: c.title?.romaji ?? null,
@@ -341,7 +346,7 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
         if (!anime.year) return 0
         return currentYear - anime.year <= 1 ? 1 : 0
       })()
-      const discovery = ((anime as any).is_hidden_gem ? 1 : 0)
+      const discovery = ((anime.popularity ?? Infinity) <= 25000 && (anime.score ?? 0) >= 6.5 ? 1 : 0)
       const popularityPenalty = computePopularityPenalty(anime)
 
       // Romance bonus: only when romance aligns with matching
@@ -436,22 +441,25 @@ export async function getPersonalizedHomeRecommendations(userId: string, options
         { user_id: userId, recommendations: final, updated_at: new Date().toISOString(), fingerprint: fingerprintString },
         { onConflict: 'user_id' }
       )
-    } catch (e) {
+    } catch {
       // ignore cache write errors
-    }
-
-    if (lockToken && redisHelpers?.releaseLock) {
-      try { await redisHelpers.releaseLock(lockKey, lockToken) } catch {}
     }
 
     return final
   })()
 
-  inFlightComputations.set(userId, computePromise)
-  try {
-    return await computePromise
+  return await computePromise
   } finally {
-    inFlightComputations.delete(userId)
+    if (lockToken && redisHelpers) {
+      await redisHelpers.releaseLock(lockKey, lockToken).catch(() => false)
+    }
+  }
+  })()
+  inFlightComputations.set(computationKey, work)
+  try {
+    return await work
+  } finally {
+    inFlightComputations.delete(computationKey)
   }
 }
 
@@ -460,25 +468,25 @@ export async function regeneratePersonalizedHomeRecommendations(userId: string, 
 }
 
 export async function debugRecommendationPipeline(userId: string) {
-  const isDev = ((globalThis as any).process?.env?.NODE_ENV === 'development') || false
+  const isDev = (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') || false
   if (!isDev) throw new Error('Debug helper only available in development')
   if (!supabase) throw new Error('Supabase not configured')
 
   const dna = await getAnimeDNA(userId)
   const starter = await getStarterAnime()
   const favoriteResp = await supabase.from('user_favorite_anime').select('anime_id').eq('user_id', userId)
-  const favoriteIds = (favoriteResp.data ?? []).map((r: any) => r.anime_id)
+  const favoriteIds = (favoriteResp.data ?? []).map((r: { anime_id: string }) => r.anime_id)
   const fingerprint = dna.traits?.slice(0, 8) ?? []
 
   const favoriteAnimeObjs = await Promise.all(
-    favoriteIds.map((id: any) => getAnimeById(id).catch(() => null))
+    favoriteIds.map((id: string) => getAnimeById(id).catch(() => null))
   )
   const validFavorites = favoriteAnimeObjs.filter(Boolean) as Anime[]
   const tasteMap = await buildSaikoTasteMap(validFavorites)
 
   const anaMap: Record<string, number> = {}
   for (const t of fingerprint) anaMap[t.name] = t.score
-  const candidates = await aniList.findCandidates(anaMap, favoriteIds.map((id: any) => parseInt(id, 10)), 50)
+  const candidates = await aniList.findCandidates(anaMap, favoriteIds.map((id: string) => parseInt(id, 10)), 50)
 
   return {
     core3: dna.favoriteAnime.map((a) => ({ id: a.id, anilistId: a.anilistId, title: a.title })),

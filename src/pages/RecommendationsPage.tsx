@@ -10,10 +10,12 @@ import {
 } from '../services/recommendations/v35/engine.ts'
 import { V35_TRAIT_BY_ID } from '../services/recommendations/v35/vocabulary.ts'
 import './recommendations.css'
+import { setNegativeFeedback } from '../services/negativeTasteProfile.ts'
+import { toast } from 'react-toastify'
 
 // ============ V35 RECOMMENDATION CARD ============
 
-function V35RecommendationCard({ rec }: { rec: ScoredRecommendation }) {
+function V35RecommendationCard({ rec, onFeedback }: { rec: ScoredRecommendation; onFeedback: (rec: ScoredRecommendation) => void }) {
   const label = CATEGORY_LABELS[rec.category]
   const anime = rec.anime
   const traitLabels = rec.matchedTraits
@@ -41,13 +43,14 @@ function V35RecommendationCard({ rec }: { rec: ScoredRecommendation }) {
           {rec.finalScore.toFixed(0)}% match
         </p>
         <p className="anime-reason">{rec.reason}</p>
-        {traitLabels.length > 0 && (
-          <div className="anime-trait-tags">
-            {traitLabels.slice(0, 3).map(t => (
-              <span key={t} className="trait-tag">{t}</span>
-            ))}
-          </div>
-        )}
+        <div className="anime-card-footer">
+          {traitLabels.length > 0 && (
+            <div className="anime-trait-tags">
+              {traitLabels.slice(0, 3).map(t => <span key={t} className="trait-tag">{t}</span>)}
+            </div>
+          )}
+          <button type='button' className='not-for-me-button' onClick={(event) => { event.preventDefault(); event.stopPropagation(); onFeedback(rec) }}>Not for me</button>
+        </div>
       </div>
     </Link>
   )
@@ -55,7 +58,7 @@ function V35RecommendationCard({ rec }: { rec: ScoredRecommendation }) {
 
 // ============ V35 SECTION ============
 
-function V35Section({ recommendations }: { recommendations: ScoredRecommendation[] }) {
+function V35Section({ recommendations, onFeedback }: { recommendations: ScoredRecommendation[]; onFeedback: (rec: ScoredRecommendation) => void }) {
   const groups = groupByCategory(recommendations)
   const categoryOrder: RecommendationCategory[] = [
     'perfect_match',
@@ -78,7 +81,7 @@ function V35Section({ recommendations }: { recommendations: ScoredRecommendation
           </div>
           <div className="anime-grid">
             {groups[cat].slice(0, 4).map(rec => (
-              <V35RecommendationCard key={rec.anime.id} rec={rec} />
+              <V35RecommendationCard key={rec.anime.id} rec={rec} onFeedback={onFeedback} />
             ))}
           </div>
         </section>
@@ -94,6 +97,7 @@ export default function RecommendationsPage() {
   const [recommendations, setRecommendations] = useState<ScoredRecommendation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [undo, setUndo] = useState<ScoredRecommendation | null>(null)
 
   useEffect(() => {
     if (!user || !profile) return
@@ -116,6 +120,32 @@ export default function RecommendationsPage() {
     load()
     return () => { cancelled = true }
   }, [user, profile])
+
+  async function markNotForMe(rec: ScoredRecommendation) {
+    if (!user) return
+    setRecommendations(current => current.filter(item => item.anime.id !== rec.anime.id))
+    setUndo(rec)
+    try {
+      await setNegativeFeedback(user.id, rec.anime.id, true)
+      toast.success(
+        <span>
+          Got it — we’ll tune your recommendations.{' '}
+          <button type='button' className='toast-undo-button' onClick={() => void undoFeedback()}>Undo</button>
+        </span>,
+        { autoClose: 6000 },
+      )
+    } catch {
+      setRecommendations(current => [rec, ...current])
+      setUndo(null)
+      toast.error('We could not save that feedback. Please try again.')
+    }
+  }
+  async function undoFeedback() {
+    if (!user || !undo) return
+    const restored = undo
+    setUndo(null)
+    try { await setNegativeFeedback(user.id, restored.anime.id, false); toast.info('Feedback undone.') } catch { toast.error('We could not undo that feedback. Please try again.') }
+  }
 
   if (!user || !profile) {
     return <div className="state-panel">Loading account...</div>
@@ -159,9 +189,8 @@ export default function RecommendationsPage() {
       )}
 
       {!loading && !error && recommendations.length > 0 && (
-        <V35Section recommendations={recommendations} />
+        <V35Section recommendations={recommendations} onFeedback={(rec) => void markNotForMe(rec)} />
       )}
-
       {!loading && !error && recommendations.length === 0 && (
         <div className="state-panel">
           <p className="eyebrow">No recommendations yet</p>

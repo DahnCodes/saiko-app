@@ -9,9 +9,14 @@ import './dna.css'
 import './dna-share.css'
 
 export default function AnimeDNAPage() {
+  const { user } = useAuth()
+  return <AnimeDNAContent key={user?.id ?? 'signed-out'} />
+}
+
+function AnimeDNAContent() {
   const { user, profile, loading, profileLoading } = useAuth()
   const [dna, setDna] = useState<AnimeDNA | null>(null)
-  const [dnaLoading, setDnaLoading] = useState(true)
+  const [dnaLoading, setDnaLoading] = useState(Boolean(user))
   const [card, setCard] = useState<AnimeDNAShareCardData | null>(null)
   const [preview, setPreview] = useState('')
   const [busy, setBusy] = useState(false)
@@ -22,12 +27,7 @@ export default function AnimeDNAPage() {
 
   useEffect(() => {
     let mounted = true
-    if (!user) {
-      setDna(null)
-      setDnaLoading(false)
-      return
-    }
-    setDnaLoading(true)
+    if (!user) return
     getAnimeDNA(user.id)
       .then((res) => mounted && setDna(res))
       .catch(() => mounted && setDna(null))
@@ -50,7 +50,7 @@ export default function AnimeDNAPage() {
         objectUrl = URL.createObjectURL(blob)
         setPreview(objectUrl)
       })
-      .catch(() => setMessage("We couldn't create your card right now. Try again."))
+      .catch(() => active && setMessage("We couldn't create your card right now. Try again."))
     return () => {
       active = false
       if (objectUrl) URL.revokeObjectURL(objectUrl)
@@ -153,7 +153,6 @@ export default function AnimeDNAPage() {
       
       {/* DNA Description */}
       <p className="dna-description">{dna.description}</p>
-
       {/* DNA Traits */}
       <h2>Your traits</h2>
       {dna.traits.map((t) => (

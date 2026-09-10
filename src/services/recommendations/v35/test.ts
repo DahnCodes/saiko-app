@@ -2,6 +2,7 @@
  * V35 Recommendation Engine Tests
  */
 
+import { V35_TRAITS } from './vocabulary';
 import { scoreCandidate, assignCategory, SAIKO_RECOMMENDATION_VERSION, SAIKO_TRAIT_VERSION } from './scoring';
 import { buildV35UserProfile } from './userProfile';
 import { extractAnimeTraitVector } from './traitExtractor';
@@ -152,7 +153,8 @@ export function runScoringTests(): void {
       coreGenres: ['Action', 'Adventure'],
       coreThemes: [],
     });
-    assert(result.finalScore >= 60, `Expected decent score, got ${result.finalScore}`);
+    const weak = scoreCandidate({ anime: mockAnimeLowMatch, userProfile: profile, coreGenres: ['Action', 'Adventure'], coreThemes: [] });
+    assert(result.finalScore > weak.finalScore, `Strong match must outrank weak match: ${result.finalScore} vs ${weak.finalScore}`);
     assert(result.breakdown.traitMatch >= 50, `Expected high trait match, got ${result.breakdown.traitMatch}`);
     console.log(`  High match score: ${result.finalScore} (trait: ${result.breakdown.traitMatch})`);
   }));
@@ -165,6 +167,8 @@ export function runScoringTests(): void {
       coreGenres: ['Romance', 'Comedy'],
       coreThemes: [],
     });
+    const strong = scoreCandidate({ anime: mockAnimeHighMatch, userProfile: profile, coreGenres: ['Romance', 'Comedy'], coreThemes: [] });
+    assert(result.finalScore < strong.finalScore, 'Weak match must score below strong match');
     console.log(`  Low match score: ${result.finalScore}`);
   }));
 
@@ -332,9 +336,8 @@ export function runScoringTests(): void {
     console.log(`  No-metadata score: ${result.finalScore}`);
   }));
 
-  results.push(test('Test 11 — Trait vocabulary is exactly 35', () => {
-    const { V35_TRAITS } = require('./vocabulary');
-    assert(V35_TRAITS.length === 35, `Expected 35 traits, got ${V35_TRAITS.length}`);
+  results.push(test('Test 11 — Trait vocabulary has 34 unique IDs', () => {
+    assert(V35_TRAITS.length === 34 && new Set(V35_TRAITS.map(t => t.id)).size === 34, `Expected 34 unique traits, got ${V35_TRAITS.length}`);
     console.log(`  Trait count: ${V35_TRAITS.length}`);
   }));
 

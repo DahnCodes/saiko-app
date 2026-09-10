@@ -15,6 +15,8 @@ import {
   type RecommendationCategory,
 } from './scoring';
 import { generateExplanation } from './explanation';
+import { enrichShortlist } from './characterAffinity';
+import { calculateNegativePenalty, getNegativeTasteProfile } from '../../negativeTasteProfile';
 
 export { SAIKO_RECOMMENDATION_VERSION, SAIKO_TRAIT_VERSION } from './scoring';
 export type { ScoredRecommendation, RecommendationCategory } from './scoring';
@@ -86,17 +88,26 @@ async function getOnboardingIds(): Promise<Set<string>> {
 }
 
 export async function getV35Recommendations(userId: string): Promise<ScoredRecommendation[]> {
+  if (!supabase) throw new Error('Supabase not configured');
   const dna = await getAnimeDNA(userId);
   if (!dna) throw new Error('User DNA not found');
 
   const userProfile = buildV35UserProfile(dna);
+  // Feedback is an optional extension; an unapplied migration or transient
+  // failure must never prevent the existing recommendation flow from loading.
+  const negativeProfile = await getNegativeTasteProfile(userId).catch(() => ({
+    contentTraits: [], narrativeTraits: [], characterTraits: [], evidenceCount: 0,
+    version: 1, updatedAt: new Date().toISOString(),
+  }));
 
   const coreAnime = await getUserCoreAnime(userId);
   const coreGenres = [...new Set(coreAnime.flatMap(a => a.genres ?? []))];
 
   const onboardingIds = await getOnboardingIds();
   const userFavoriteIds = new Set(coreAnime.map(a => a.id));
-  const excludedIds = new Set([...userFavoriteIds, ...onboardingIds]);
+  const { data: feedbackRows } = await supabase.from('user_anime_feedback').select('anime_id').eq('user_id', userId).eq('feedback_type', 'not_for_me').then(result => result.error ? { data: [] } : result);
+  const rejectedIds = new Set((feedbackRows ?? []).map(row => String((row as { anime_id: string }).anime_id)));
+  const excludedIds = new Set([...userFavoriteIds, ...onboardingIds, ...rejectedIds]);
 
   const candidates = await fetchCandidates(excludedIds);
   if (candidates.length === 0) return [];
@@ -140,6 +151,24 @@ export async function getV35Recommendations(userId: string): Promise<ScoredRecom
     });
   }
 
+  scored.sort((a, b) => b.finalScore - a.finalScore);
+  const characterShortlist = scored.slice(0, 20);
+  const characterResults = await enrichShortlist(characterShortlist.map(item => item.anime), dna.tasteProfile?.characterTraits ?? []);
+  characterShortlist.forEach(item => {
+    const result = characterResults.get(item.anime.id);
+    if (!result || result.score === null) return;
+    item.finalScore = Math.round((item.finalScore * 0.8 + result.score * 0.2) * 10) / 10;
+    item.characterAffinity = result.score;
+    item.characterDataAvailable = true;
+    item.characterMatchedTraits = result.matchedTraits;
+    if (result.matchedTraits.length) item.reason = `${item.reason} · Strong character match: ${result.matchedTraits.slice(0, 2).join(' and ')}`;
+  });
+  scored.forEach(item => {
+    const penalty = calculateNegativePenalty(item.anime, negativeProfile);
+    item.finalScore = Math.max(0, Math.round((item.finalScore - penalty) * 10) / 10);
+    item.scoreBreakdown.negativePreferencePenalty = penalty;
+    if (penalty > 0) item.reason = `${item.reason} · Adjusted for repeated preferences`;
+  });
   scored.sort((a, b) => b.finalScore - a.finalScore);
   const diversified = rerankForDiversity(scored, RECOMMENDATION_LIMIT);
 

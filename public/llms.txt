@@ -1,0 +1,32 @@
+# SAIKO
+
+> SAIKO is an anime discovery application for exploring anime, reading news, watching trailers, and finding recommendations based on your taste.
+
+Browse and search the public anime catalog without an account. Onboarding lets
+you choose three favorite anime. Sign in to save favorites, discover your Anime
+DNA, and access personalized recommendations. Users can share their Anime DNA
+through public profile links.
+
+## Public pages
+
+- [Home](https://saiko-app.pxxl.click/): Featured discoveries and trending anime.
+- [Anime](https://saiko-app.pxxl.click/anime): Browse the anime catalog and open individual titles for details.
+- [Search](https://saiko-app.pxxl.click/search): Search for anime by title.
+- [News](https://saiko-app.pxxl.click/news): Anime news with links to original sources.
+- [Trailers](https://saiko-app.pxxl.click/trailers): Official YouTube anime trailers.
+- [Onboarding](https://saiko-app.pxxl.click/onboarding): Choose three anime that define your taste.
+
+## Account features
+
+- [Sign in](https://saiko-app.pxxl.click/auth): Sign in or create an account to save favorites.
+- [Recommendations](https://saiko-app.pxxl.click/recommendations): Personalized anime discoveries; requires sign-in and completed onboarding.
+- [Anime DNA](https://saiko-app.pxxl.click/anime-dna): Discover and share your anime taste profile; requires sign-in and completed onboarding.
+
+## Discovery
+
+- [Sitemap](https://saiko-app.pxxl.click/sitemap.xml): Public navigation pages.
+- [Crawler policy](https://saiko-app.pxxl.click/robots.txt): Crawl permissions and content-use signals.
+
+## Documentation and contact
+
+No public product documentation URL or contact link is currently supplied.

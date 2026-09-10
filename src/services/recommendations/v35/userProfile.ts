@@ -6,6 +6,7 @@ import type { AnimeDNA } from '../../animeDNA';
 import { V35_TRAIT_ID_LIST } from './vocabulary';
 import { extractAnimeTraitVector, type AnimeTraitVector } from './traitExtractor';
 import type { Anime } from '../../../types/anime';
+import type { UserTasteProfile } from '../../tasteProfile';
 
 export interface V35UserTraitProfile {
   weights: Map<string, number>;
@@ -14,6 +15,14 @@ export interface V35UserTraitProfile {
 }
 
 const DNA_TO_V35: Record<string, string[]> = {
+  strategist: ['strategy', 'intelligence'],
+  protector: ['loyalty', 'sacrifice'],
+  morally_gray: ['morality', 'darkness'],
+  reserved: ['identity', 'emotional_depth'],
+  compassionate: ['compassion', 'friendship'],
+  competitive: ['competition', 'intensity'],
+  underdog: ['resilience', 'determination'],
+  leader: ['leadership', 'responsibility'],
   'Loyalty': ['loyalty', 'friendship'],
   'Ambition': ['ambition', 'determination'],
   'Rivalry': ['competition', 'ambition'],
@@ -83,6 +92,18 @@ export function buildV35UserProfile(dna: AnimeDNA): V35UserTraitProfile {
   const weights = new Map<string, number>();
   const dnaTraitNames = dna.traits.map(t => t.name);
   const dnaName = dna.name;
+
+  const canonical = dna.tasteProfile as UserTasteProfile | undefined;
+  if (canonical) {
+    const all = [...canonical.contentTraits, ...canonical.narrativeTraits, ...canonical.characterTraits];
+    all.forEach((trait) => {
+      const ids = V35_TRAIT_ID_LIST.includes(trait.id) ? [trait.id] : dnaToV35Traits(trait.id);
+      ids.forEach(id => { if (V35_TRAIT_ID_LIST.includes(id)) weights.set(id, (weights.get(id) ?? 0) + trait.score) });
+    });
+    const maxCanonical = Math.max(...weights.values(), 0.0001);
+    for (const [id, weight] of weights.entries()) weights.set(id, Math.round((weight / maxCanonical) * 100) / 100);
+    return { weights, dnaTraitNames: all.map((trait) => trait.id), dnaName };
+  }
 
   for (const id of V35_TRAIT_ID_LIST) {
     weights.set(id, 0);

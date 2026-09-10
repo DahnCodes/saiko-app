@@ -1,3 +1,4 @@
+import { authorizeAdmin } from '../_shared/admin.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const ANILIST_URL = 'https://graphql.anilist.co'
@@ -13,12 +14,15 @@ function positiveInteger(value: unknown, fallback: number, maximum?: number): nu
 const cleanText = (value: string | null) => value?.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, '').replace(/\s*\(Source:\s*[^)]+\)\s*/gi, ' ').replace(/\s+/g, ' ').trim() || null
 
 Deno.serve(async (request) => {
+  const denied = authorizeAdmin(request)
+  if (denied) return denied
   if (request.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { allow: 'POST' } })
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!supabaseUrl || !serviceRoleKey) { console.error('sync-anime: missing server credentials'); return Response.json({ error: 'Sync service is not configured' }, { status: 500 }) }
 
   const body = await request.json().catch(() => ({})) as { page?: unknown; perPage?: unknown; mode?: unknown }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'Invalid request body' }, { status: 400 })
   const page = positiveInteger(body.page, 1)
   const hiddenGems = body.mode === 'hidden_gems'
   const perPage = positiveInteger(body.perPage, hiddenGems ? MAX_PAGE_SIZE : 20, MAX_PAGE_SIZE)

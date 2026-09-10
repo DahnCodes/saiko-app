@@ -17,17 +17,29 @@ type AniListMedia = {
   countryOfOrigin?: string | null
 }
 
+export type AniListCharacter = {
+  id: number
+  name: { full?: string }
+  image?: { large?: string; medium?: string }
+  description?: string | null
+  favourites?: number
+}
+export type AniListCharacterEdge = { role?: string; node: AniListCharacter }
+export type AniListMediaCharacters = { id: number; characters?: { edges?: AniListCharacterEdge[] } }
+
 export type { AniListMedia }
 
 // GraphQL queries exported as constants so they can be reused
 export const GET_MEDIA_BY_IDS = `query ($ids: [Int]) { Page(perPage: 50) { media(id_in: $ids, type: ANIME) { id title { romaji } genres tags { name rank isMediaSpoiler } averageScore popularity coverImage { large } } } }`
 
 export const FIND_CANDIDATES_QUERY = `query ($tags: [String], $exclude: [Int], $perPage: Int) { Page(perPage: $perPage) { media(tag_in: $tags, type: ANIME, format_in: [TV], averageScore_greater: 75, id_not_in: $exclude, sort: SCORE_DESC) { id title { romaji } tags { name rank } averageScore popularity coverImage { large } genres countryOfOrigin seasonYear } } }`
+export const GET_CHARACTERS_QUERY = `query ($id: Int, $perPage: Int) { Media(id: $id, type: ANIME) { id characters(sort: [ROLE, FAVOURITES_DESC], perPage: $perPage) { edges { role node { id name { full } image { large medium } description favourites } } } } }`
 
 export const HIDDEN_GEMS_QUERY = `query ($perPage: Int, $seasonYear_greater: Int, $seasonYear_lesser: Int) { Page(perPage: $perPage) { media(type: ANIME, format_in: [TV], countryOfOrigin: "JP", averageScore_greater: 80, popularity_lesser: 40000, sort: SCORE_DESC, seasonYear_greater: $seasonYear_greater, seasonYear_lesser: $seasonYear_lesser) { id title { romaji } averageScore popularity tags(sort: RANK_DESC) { name rank } genres coverImage { large } seasonYear } } }`
 
 // lightweight in-memory cache and localStorage fallback
-const memCache = new Map<string, { ttl: number; value: any }>()
+type MediaPage = { Page?: { media?: AniListMedia[] }; Media?: AniListMediaCharacters }
+const memCache = new Map<string, { ttl: number; value: MediaPage }>()
 function cacheGet(key: string) {
   const entry = memCache.get(key)
   if (entry && entry.ttl > Date.now()) return entry.value
@@ -37,16 +49,16 @@ function cacheGet(key: string) {
       const parsed = JSON.parse(raw)
       if (parsed.ttl > Date.now()) return parsed.value
     }
-  } catch {}
+  } catch { /* Storage may be unavailable. */ }
   return null
 }
-function cacheSet(key: string, value: any, seconds = 60) {
+function cacheSet(key: string, value: MediaPage, seconds = 60) {
   const ttl = Date.now() + seconds * 1000
   memCache.set(key, { ttl, value })
-  try { localStorage.setItem(key, JSON.stringify({ ttl, value })) } catch {}
+  try { localStorage.setItem(key, JSON.stringify({ ttl, value })) } catch { /* Storage may be unavailable. */ }
 }
 
-async function fetchGraphQL(query: string, variables: Record<string, any> = {}, retries = 1) {
+async function fetchGraphQL(query: string, variables: Record<string, unknown> = {}, retries = 1): Promise<MediaPage> {
   const cacheKey = `ali:${query}:${JSON.stringify(variables)}`
   const cached = cacheGet(cacheKey)
   if (cached) return cached
@@ -56,6 +68,7 @@ async function fetchGraphQL(query: string, variables: Record<string, any> = {}, 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(15_000),
     })
     if (res.status === 429 && retries > 0) {
       // simple backoff
@@ -64,7 +77,8 @@ async function fetchGraphQL(query: string, variables: Record<string, any> = {}, 
     }
     if (!res.ok) throw new Error(`AniList error: ${res.status}`)
     const json = await res.json()
-    if (json.errors) throw new Error(json.errors.map((e: any) => e.message).join(', '))
+    if (json.errors) throw new Error(json.errors.map((e: { message: string }) => e.message).join(', '))
+    if (!json.data || (!Array.isArray(json.data.Page?.media) && !json.data.Media)) throw new Error('AniList returned invalid media data')
     cacheSet(cacheKey, json.data, 30) // short cache
     return json.data
   } catch (err) {
@@ -107,6 +121,16 @@ export async function findCandidates(dna: Record<string, number>, excludeIds: nu
   const data = await fetchGraphQL(FIND_CANDIDATES_QUERY, { tags, exclude: excludeIds, perPage })
   const candidates: AniListMedia[] = data?.Page?.media ?? []
   return candidates
+}
+
+const characterCache = new Map<number, AniListCharacterEdge[]>()
+export async function getAnimeCharacters(anilistId: number, perPage = 10): Promise<AniListCharacterEdge[]> {
+  const cached = characterCache.get(anilistId)
+  if (cached) return cached.slice(0, perPage)
+  const data = await fetchGraphQL(GET_CHARACTERS_QUERY, { id: anilistId, perPage }) as MediaPage & { Media?: AniListMediaCharacters }
+  const edges = data.Media?.characters?.edges ?? []
+  characterCache.set(anilistId, edges)
+  return edges
 }
 
 // helper: cosine similarity

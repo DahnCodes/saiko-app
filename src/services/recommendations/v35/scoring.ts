@@ -29,10 +29,14 @@ export interface ScoredRecommendation {
     qualityScore: number;
     freshnessScore: number;
     discoveryScore: number;
+    negativePreferencePenalty?: number;
   };
   matchedTraits: string[];
   category: RecommendationCategory;
   reason: string;
+  characterAffinity?: number | null;
+  characterDataAvailable?: boolean;
+  characterMatchedTraits?: string[];
 }
 
 export type RecommendationCategory =
@@ -128,7 +132,7 @@ function calculateDiscoveryScore(
 ): number {
   const popularity = anime.popularity ?? 50000;
 
-  let discovery = 1.0;
+  let discovery: number;
   if (popularity < 5000) discovery = 1.0;
   else if (popularity < 20000) discovery = 0.85;
   else if (popularity < 50000) discovery = 0.70;

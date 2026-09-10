@@ -43,10 +43,12 @@ export async function getCachedTraitProfile(animeId: string): Promise<AnimeTrait
   if (sessionProfile) return sessionProfile;
 
   if (!supabase) return null;
+  const { data: anime, error: animeError } = await supabase.from('anime').select('anilist_id').eq('id', animeId).maybeSingle();
+  if (animeError || !anime) return null;
   const { data, error } = await supabase
     .from('anime_traits')
     .select('trait_profiles')
-    .eq('id', animeId)
+    .eq('anilist_id', anime.anilist_id)
     .maybeSingle();
   if (error) {
     // 404 (table not found) is expected during initial setup — use session cache only
@@ -80,10 +82,13 @@ export async function getCachedTraitProfiles(animeIds: string[]): Promise<Map<st
 
   if (!uncachedIds.length || !supabase) return result;
 
+  const { data: animeRows, error: animeError } = await supabase.from('anime').select('id,anilist_id').in('id', uncachedIds);
+  if (animeError || !animeRows?.length) return result;
+  const idsByAnilist = new Map(animeRows.map(row => [row.anilist_id, row.id as string]));
   const { data, error } = await supabase
     .from('anime_traits')
-    .select('id, trait_profiles')
-    .in('id', uncachedIds);
+    .select('anilist_id, trait_profiles')
+    .in('anilist_id', [...idsByAnilist.keys()]);
 
   if (error) {
     if (error.code === 'PGRST204' || error.code === '42P01') return result;
@@ -93,8 +98,10 @@ export async function getCachedTraitProfiles(animeIds: string[]): Promise<Map<st
 
   if (!data) return result;
   for (const row of data as TraitCacheRow[]) {
-    result.set(row.id, row.trait_profiles);
-    setSessionCache(row.id, row.trait_profiles);
+    const animeId = idsByAnilist.get(row.anilist_id);
+    if (!animeId) continue;
+    result.set(animeId, row.trait_profiles);
+    setSessionCache(animeId, row.trait_profiles);
   }
   return result;
 }
@@ -133,6 +140,8 @@ export async function getCachedTraitProfilesByAnilistIds(
 export async function cacheTraitProfiles(
   animeWithTraits: Array<{ anilistId: number; malId: number | null; traitProfile: AnimeTraitProfile }>,
 ): Promise<void> {
+  // Shared cache writes belong to trusted server jobs, never browser users.
+  if (typeof window !== 'undefined') return;
   if (!animeWithTraits.length) return;
   if (!supabase) return;
 
@@ -150,13 +159,13 @@ export async function cacheTraitProfiles(
 
     if (error) {
       // 404 (table missing) or 42P01 (table not found) — migration not applied yet
-      if (error.code === 'PGRST204' || error.code === '42P01' || (error as any).status === 404) {
+      if (error.code === 'PGRST204' || error.code === '42P01' || ('status' in error && error.status === 404)) {
         // Silently skip caching — session cache is still active
         return;
       }
       console.warn('[traitCache] Failed to cache anime trait profiles', error);
     }
-  } catch (e) {
+  } catch {
     // Network errors or other unexpected failures — caching is best-effort
   }
 }

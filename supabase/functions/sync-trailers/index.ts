@@ -1,3 +1,4 @@
+import { authorizeAdmin } from '../_shared/admin.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const ANILIST_URL = 'https://graphql.anilist.co'
@@ -5,10 +6,13 @@ const query = `query Trailers($ids: [Int]) { Page(perPage: 50) { media(id_in: $i
 type Media = { id: number; title: { userPreferred: string | null; english: string | null; romaji: string | null }; trailer: { id: string; site: string; thumbnail: string | null } | null }
 
 Deno.serve(async (request) => {
+  const denied = authorizeAdmin(request)
+  if (denied) return denied
   if (request.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405 })
   const url = Deno.env.get('SUPABASE_URL'); const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!url || !key) return Response.json({ error: 'Trailer sync is not configured' }, { status: 500 })
   const body = await request.json().catch(() => ({})) as { hiddenGems?: unknown; limit?: unknown }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'Invalid request body' }, { status: 400 })
   const limit = Math.min(Math.max(Number(body.limit) || 30, 1), 50)
   const db = createClient(url, key)
   let animeQuery = db.from('anime').select('id,anilist_id,title').not('anilist_id', 'is', null).limit(limit)

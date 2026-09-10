@@ -1,3 +1,4 @@
+import { authorizeAdmin } from '../_shared/admin.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const FEED_URL = 'https://www.animenewsnetwork.com/all/rss.xml?ann-edition=us'
@@ -8,6 +9,8 @@ function decodeXml(value: string): string { return value.replace(/<!\[CDATA\[([\
 function tagValue(item: string, tag: string): string | null { const match = item.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i')); return match ? decodeXml(match[1]) : null }
 
 Deno.serve(async (request) => {
+  const denied = authorizeAdmin(request)
+  if (denied) return denied
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
   const feedResponse = await fetch(FEED_URL, { headers: { accept: 'application/rss+xml, application/xml' } })
   if (!feedResponse.ok) return Response.json({ error: 'Source feed unavailable' }, { status: 502 })

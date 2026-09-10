@@ -2,20 +2,18 @@ import type Redis from 'ioredis'
 
 let redisClient: Redis | null = null
 
-function getRedisClient() {
+async function getRedisClient() {
+  if (typeof window !== 'undefined') return null
   if (redisClient) return redisClient
-  // try environment vars via globalThis or import.meta
-  const url = (globalThis as any).process?.env?.REDIS_URL || (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_REDIS_URL)
+  const url = process.env.REDIS_URL
   if (!url) return null
-  // Lazy import to avoid bundling in browser
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const IORedis = require('ioredis')
+  const { default: IORedis } = await import('ioredis')
   redisClient = new IORedis(url)
   return redisClient
 }
 
 export async function acquireLock(key: string, ttl = 30_000): Promise<string | null> {
-  const client = getRedisClient()
+  const client = await getRedisClient()
   if (!client) return null
   const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`
   const ok = await client.set(key, token, 'PX', ttl, 'NX')
@@ -23,7 +21,7 @@ export async function acquireLock(key: string, ttl = 30_000): Promise<string | n
 }
 
 export async function releaseLock(key: string, token: string): Promise<boolean> {
-  const client = getRedisClient()
+  const client = await getRedisClient()
   if (!client) return false
   // Lua script to release only if value matches
   const script = `if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end`
@@ -36,7 +34,7 @@ export async function releaseLock(key: string, token: string): Promise<boolean> 
 }
 
 export async function isLocked(key: string): Promise<boolean> {
-  const client = getRedisClient()
+  const client = await getRedisClient()
   if (!client) return false
   const v = await client.get(key)
   return !!v
